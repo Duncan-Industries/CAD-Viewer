@@ -1,6 +1,8 @@
 {
   "name": "cadviewer-frontend",
   "version": "1.0.0",
+  "description": "Desktop CAD viewer built with Electron, React, and Three.js.",
+  "author": "CADViewer Team",
   "private": true,
   "type": "module",
   "main": "electron/dist/main.mjs",

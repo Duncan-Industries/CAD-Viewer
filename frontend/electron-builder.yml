@@ -2,9 +2,6 @@ appId: com.cadviewer.app
 productName: CADViewer
 copyright: Copyright © 2025
 
-# electron main entry
-main: electron/dist/main.mjs
-
 directories:
   output: release
   buildResources: build-resources
