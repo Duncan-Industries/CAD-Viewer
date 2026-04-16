@@ -1,5 +1,5 @@
 import { useState } from "react";
-import * as Tabs from "@base-ui-components/react/tabs";
+import * as Tabs from "@base-ui/react/tabs";
 
 import { Toolbar } from "./components/Toolbar";
 import { FileUpload } from "./components/FileUpload";
