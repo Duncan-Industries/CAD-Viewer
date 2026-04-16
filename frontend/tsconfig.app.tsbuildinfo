@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/annotationspanel.tsx","./src/components/assemblytree.tsx","./src/components/fileupload.tsx","./src/components/toolbar.tsx","./src/components/viewer3d.tsx","./src/hooks/usecadfile.ts","./src/services/api.ts","./src/types/cad.ts"],"version":"5.9.3"}

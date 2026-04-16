@@ -1,5 +1,4 @@
 import { useState } from "react";
-import * as Tabs from "@base-ui/react/tabs";
 
 import { Toolbar } from "./components/Toolbar";
 import { FileUpload } from "./components/FileUpload";
@@ -107,13 +106,9 @@ export default function App() {
         {/* ── Right panel (only when file is loaded) ── */}
         {hasFile && (
           <aside className="w-72 shrink-0 flex flex-col border-l border-slate-800 bg-slate-900">
-            <Tabs.Root
-              value={tab}
-              onValueChange={(v) => setTab(v as PanelTab)}
-              className="flex flex-col h-full"
-            >
+            <div className="flex flex-col h-full">
               {/* Tab bar */}
-              <Tabs.List className="flex border-b border-slate-800 shrink-0">
+              <div className="flex border-b border-slate-800 shrink-0">
                 {(
                   [
                     { value: "assembly", label: "Assembly" },
@@ -121,33 +116,36 @@ export default function App() {
                     { value: "metadata", label: "Info" },
                   ] as { value: PanelTab; label: string; count?: number }[]
                 ).map(({ value, label, count }) => (
-                  <Tabs.Tab
+                  <button
                     key={value}
-                    value={value}
-                    className="flex-1 flex items-center justify-center gap-0.5 px-2 py-2.5 text-xs font-medium transition-colors
-                      text-slate-400 hover:text-slate-200
-                      data-[selected]:text-blue-400 data-[selected]:border-b-2 data-[selected]:border-blue-400 data-[selected]:bg-slate-800/40
-                      cursor-pointer"
+                    type="button"
+                    onClick={() => setTab(value)}
+                    className={`flex-1 flex items-center justify-center gap-0.5 px-2 py-2.5 text-xs font-medium transition-colors border-b-2 cursor-pointer ${
+                      tab === value
+                        ? "text-blue-400 border-blue-400 bg-slate-800/40"
+                        : "text-slate-400 hover:text-slate-200 border-transparent"
+                    }`}
+                    aria-pressed={tab === value}
                   >
                     {label}
                     {count !== undefined && <Badge count={count} />}
-                  </Tabs.Tab>
+                  </button>
                 ))}
-              </Tabs.List>
+              </div>
 
               {/* Panels */}
               <div className="flex-1 min-h-0">
-                <Tabs.Panel value="assembly" className="h-full">
+                {tab === "assembly" && (
                   <AssemblyTree nodes={cadFile.assembly} />
-                </Tabs.Panel>
-                <Tabs.Panel value="annotations" className="h-full">
+                )}
+                {tab === "annotations" && (
                   <AnnotationsPanel annotations={cadFile.annotations} />
-                </Tabs.Panel>
-                <Tabs.Panel value="metadata" className="h-full">
+                )}
+                {tab === "metadata" && (
                   <MetadataPanel metadata={cadFile.metadata} />
-                </Tabs.Panel>
+                )}
               </div>
-            </Tabs.Root>
+            </div>
           </aside>
         )}
       </div>
