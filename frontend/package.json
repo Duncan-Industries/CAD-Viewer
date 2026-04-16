@@ -1,0 +1,42 @@
+{
+  "name": "cadviewer-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/dist/main.mjs",
+  "scripts": {
+    "dev": "vite",
+    "dev:electron": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && electron-vite dev\"",
+    "build": "tsc -b && vite build",
+    "build:electron": "npm run build && electron-vite build",
+    "dist": "npm run build:electron && electron-builder",
+    "dist:win": "npm run build:electron && electron-builder --win",
+    "dist:mac": "npm run build:electron && electron-builder --mac",
+    "dist:linux": "npm run build:electron && electron-builder --linux",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@base-ui-components/react": "^1.0.0",
+    "@react-three/drei": "^10.0.0",
+    "@react-three/fiber": "^9.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "three": "^0.175.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.4",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@types/three": "^0.175.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.0.0",
+    "tailwindcss": "^4.1.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.2",
+    "wait-on": "^8.0.1"
+  }
+}

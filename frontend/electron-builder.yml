@@ -1,0 +1,63 @@
+appId: com.cadviewer.app
+productName: CADViewer
+copyright: Copyright © 2025
+
+# electron main entry
+main: electron/dist/main.mjs
+
+directories:
+  output: release
+  buildResources: build-resources
+
+# What goes inside the ASAR archive (renderer + electron bootstrap)
+files:
+  - electron/dist/**/*
+  - dist/renderer/**/*
+  - "!**/*.map"
+
+# The PyInstaller binary is placed outside ASAR in resources/backend/
+extraResources:
+  - from: ../backend/dist/
+    to: backend
+    filter:
+      - "cadviewer-api"
+      - "cadviewer-api.exe"
+
+# ------- Platform targets -------
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  icon: build-resources/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: build-resources/icon.ico
+  uninstallerIcon: build-resources/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: build-resources/icon.icns
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build-resources/entitlements.mac.plist
+  entitlementsInherit: build-resources/entitlements.mac.plist
+
+dmg:
+  sign: false
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  icon: build-resources/icon.png
+  category: Development
