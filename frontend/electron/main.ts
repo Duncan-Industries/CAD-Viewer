@@ -224,11 +224,15 @@ ipcMain.handle("python:install", async () => {
 
   const requirementsTxt = app.isPackaged
     ? path.join(process.resourcesPath, "backend", "requirements.txt")
-    : path.join(__dirname, "../../backend/requirements.txt");
+    : path.resolve(__dirname, "../../backend/requirements.txt");
+
+  if (!fs.existsSync(requirementsTxt)) {
+    throw new Error(`requirements.txt not found at: ${requirementsTxt}`);
+  }
 
   await spawnPromiseWithProgress(
     uv,
-    ["pip", "install", "--python", venvDir, "-r", requirementsTxt],
+    ["pip", "install", "--python", getVenvPython(), "-r", requirementsTxt],
     (line) => {
       const m = line.match(/(?:Resolved|Prepared|Installed|Downloading)\s+(.+)/);
       if (m) sendProgress("install", 50, `${m[0].slice(0, 70)}`);
