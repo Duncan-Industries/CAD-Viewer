@@ -7,7 +7,7 @@
  *  3. Kill backend on app quit
  */
 
-import { app, BrowserWindow, ipcMain, shell, net } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { spawn, execFile, ChildProcess } from "node:child_process";
 import http from "node:http";
 import fs from "node:fs";
@@ -19,31 +19,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Port the Python backend listens on.
 const BACKEND_PORT = 48_321;
 
-// Embeddable Python 3.11 zip (Windows) — ~12 MB, no system install needed
-const PYTHON_EMBED_URL =
-  "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip";
-// get-pip bootstrap script
-const GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py";
+// ---------------------------------------------------------------------------
+// uv paths — uv is bundled in resources/uv/
+// ---------------------------------------------------------------------------
 
-// Where the app-local Python lives (inside Electron userData, never in PATH)
-function getEmbedDir(): string {
-  return path.join(app.getPath("userData"), "python-embedded");
+function getUvExe(): string {
+  const ext = process.platform === "win32" ? ".exe" : "";
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "uv", `uv${ext}`);
+  }
+  // Dev: look in build-resources/uv/ relative to repo root
+  return path.join(__dirname, `../../build-resources/uv/uv${ext}`);
 }
 
-// Bundled zip shipped inside the installer under resources/python/
-function getBundledZipPath(): string | null {
-  const p = app.isPackaged
-    ? path.join(process.resourcesPath, "python", "python-3.11-embed-amd64.zip")
-    : path.join(__dirname, "../../build-resources/python/python-3.11-embed-amd64.zip");
-  return fs.existsSync(p) ? p : null;
+function getVenvDir(): string {
+  return path.join(app.getPath("userData"), "cadviewer-venv");
 }
 
-// The venv Python executable (used by backend at runtime on all platforms)
 function getVenvPython(): string {
-  const venvDir = path.join(app.getPath("userData"), "cadviewer-venv");
   return process.platform === "win32"
-    ? path.join(venvDir, "Scripts", "python.exe")
-    : path.join(venvDir, "bin", "python3");
+    ? path.join(getVenvDir(), "Scripts", "python.exe")
+    : path.join(getVenvDir(), "bin", "python3");
 }
 
 // Alias used throughout
@@ -58,6 +54,11 @@ function appPythonExists(): boolean {
   } catch {
     return false;
   }
+}
+
+// uv stores its own Python downloads here (isolated from system)
+function getUvCacheDir(): string {
+  return path.join(app.getPath("userData"), "uv-cache");
 }
 
 type BackendStatus = "stopped" | "starting" | "ready" | "error";
@@ -143,39 +144,30 @@ function waitForBackend(port: number, timeoutMs = 90_000): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// IPC: python:check — checks for app-local embedded Python first, then system
+// IPC: python:check — checks for app-local venv, then whether uv is available
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("python:check", async () => {
-  const bundled = getBundledZipPath() !== null;
+  // uv is always bundled — treat it like "bundled" so UI skips the download step
+  const uvExe = getUvExe();
+  const uvAvailable = fs.existsSync(uvExe);
 
-  // 1. Check if app-local venv is already set up
+  // If venv already exists and works, we're done
   if (appPythonExists()) {
     try {
       const version = await runPython(getAppPython(), ["--version"]);
-      return { found: true, version: version.trim(), embedded: true, bundled };
+      return { found: true, version: version.trim(), embedded: true, bundled: uvAvailable };
     } catch {
-      // venv broken, fall through
+      // venv broken, fall through to reinstall
     }
   }
 
-  // 2. Check system Python (used as venv bootstrap on Mac/Linux)
-  if (process.platform !== "win32") {
-    const candidates = ["python3", "python"];
-    for (const cmd of candidates) {
-      try {
-        const version = await runPython(cmd, ["--version"]);
-        const match = version.match(/Python (\d+)\.(\d+)/);
-        if (match && parseInt(match[1]) === 3 && parseInt(match[2]) >= 9) {
-          return { found: true, version: version.trim(), cmd, embedded: false, bundled };
-        }
-      } catch {
-        // not available
-      }
-    }
+  // uv is present — signal that we can install without a separate download
+  if (uvAvailable) {
+    return { found: false, bundled: true };
   }
 
-  return { found: false, bundled };
+  return { found: false, bundled: false };
 });
 
 function runPython(cmd: string, args: string[]): Promise<string> {
@@ -188,193 +180,74 @@ function runPython(cmd: string, args: string[]): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// IPC: python:download — download embeddable zip (Win) or get-pip (Mac/Linux)
+// IPC: python:download — no-op when uv is bundled (uv fetches Python itself)
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("python:download", async () => {
-  if (process.platform === "win32") {
-    // Use bundled zip if available — no download needed
-    const bundled = getBundledZipPath();
-    if (bundled) {
-      sendProgress("download", 100, "Using bundled Python runtime.");
-      return bundled;
-    }
-    const destPath = path.join(app.getPath("userData"), "python-3.11-embed.zip");
-    await downloadFile(PYTHON_EMBED_URL, destPath, "Downloading Python 3.11 (embedded)…");
-    return destPath;
-  }
-
-  // macOS / Linux: venv is created from system python3, no zip needed
+  // uv manages its own Python downloads internally — nothing to do here
+  sendProgress("download", 100, "Runtime bundled — no download needed.");
   return null;
 });
 
-async function downloadFile(
-  url: string,
-  destPath: string,
-  label: string,
-): Promise<void> {
-  sendProgress("download", 0, label);
-  await new Promise<void>((resolve, reject) => {
-    const request = net.request(url);
-    request.on("response", (response) => {
-      const total = parseInt(
-        (response.headers["content-length"] as string) || "0",
-        10,
-      );
-      let received = 0;
-      const out = fs.createWriteStream(destPath);
-      response.on("data", (chunk: Buffer) => {
-        received += chunk.length;
-        out.write(chunk);
-        if (total > 0) {
-          const pct = Math.round((received / total) * 100);
-          sendProgress("download", pct, `${label} ${pct}%`);
-        }
-      });
-      response.on("end", () => out.end(() => resolve()));
-      response.on("error", (err: Error) => { out.destroy(); reject(err); });
-    });
-    request.on("error", reject);
-    request.end();
-  });
-  sendProgress("download", 100, "Download complete.");
-}
-
 // ---------------------------------------------------------------------------
-// IPC: python:install — sets up app-local Python (never touches system PATH)
+// IPC: python:install — uv creates venv + installs deps (all platforms)
 // ---------------------------------------------------------------------------
 
-ipcMain.handle("python:install", async (_event, zipOrPipPath: string) => {
-  // Clean up any stale partial installs so retries start fresh
-  const venvDir = path.join(app.getPath("userData"), "cadviewer-venv");
+ipcMain.handle("python:install", async () => {
+  const uv = getUvExe();
+  if (!fs.existsSync(uv)) {
+    throw new Error(
+      `uv not found at ${uv}. Please reinstall CADViewer.`,
+    );
+  }
+
+  const venvDir = getVenvDir();
+
+  // Clean up stale venv so retries start fresh
   if (fs.existsSync(venvDir)) {
     fs.rmSync(venvDir, { recursive: true, force: true });
   }
 
-  if (process.platform === "win32") {
-    await installEmbeddedWindows(zipOrPipPath);
-  } else {
-    await installVenvUnix();
-  }
+  const uvEnv = {
+    ...process.env,
+    // Keep uv's Python/cache inside userData — never touches system
+    UV_CACHE_DIR: getUvCacheDir(),
+    UV_PYTHON_INSTALL_DIR: path.join(app.getPath("userData"), "uv-python"),
+  };
+
+  sendProgress("install", 10, "Creating Python 3.11 environment…");
+
+  // uv downloads Python 3.11 automatically if not cached
+  await spawnPromise(uv, ["venv", "--python", "3.11", venvDir], uvEnv);
+
+  sendProgress("install", 30, "Installing backend dependencies (this may take a while)…");
+
+  const requirementsTxt = app.isPackaged
+    ? path.join(process.resourcesPath, "backend", "requirements.txt")
+    : path.join(__dirname, "../../backend/requirements.txt");
+
+  await spawnPromiseWithProgress(
+    uv,
+    ["pip", "install", "--python", venvDir, "-r", requirementsTxt],
+    (line) => {
+      const m = line.match(/(?:Resolved|Prepared|Installed|Downloading)\s+(.+)/);
+      if (m) sendProgress("install", 50, `${m[0].slice(0, 70)}`);
+    },
+    uvEnv,
+  );
+
   sendProgress("install", 100, "Python environment ready.");
   return true;
 });
-
-/**
- * Windows: extract embeddable zip → use it to create a proper venv →
- * pip-install backend deps into the venv.
- * The venv has a full site-packages layout, so heavy binary wheels work.
- * The embeddable zip itself is only used as the Python interpreter seed.
- */
-async function installEmbeddedWindows(zipPath: string): Promise<void> {
-  const embedDir = getEmbedDir();
-  const venvDir = path.join(app.getPath("userData"), "cadviewer-venv");
-  fs.mkdirSync(embedDir, { recursive: true });
-
-  sendProgress("install", 5, "Extracting Python…");
-
-  // Use PowerShell Expand-Archive (built-in on all modern Windows)
-  await spawnPromise("powershell", [
-    "-NoProfile",
-    "-ExecutionPolicy", "Bypass",
-    "-Command",
-    `Expand-Archive -Force -Path '${zipPath}' -DestinationPath '${embedDir}'`,
-  ]);
-
-  sendProgress("install", 20, "Bootstrapping pip…");
-
-  // Patch _pth so the embedded interpreter can find its own stdlib
-  const pthFiles = fs.readdirSync(embedDir).filter((f) => f.endsWith("._pth"));
-  for (const pth of pthFiles) {
-    const pthPath = path.join(embedDir, pth);
-    let content = fs.readFileSync(pthPath, "utf8");
-    content = content.replace(/^#import site/m, "import site");
-    fs.writeFileSync(pthPath, content, "utf8");
-  }
-
-  // Bootstrap pip into the embeddable layout
-  const getPipPath = path.join(embedDir, "get-pip.py");
-  await downloadFile(GET_PIP_URL, getPipPath, "Downloading pip bootstrap…");
-  const embedPy = path.join(embedDir, "python.exe");
-  await spawnPromise(embedPy, [getPipPath, "--no-warn-script-location"]);
-
-  sendProgress("install", 35, "Creating isolated Python environment…");
-
-  // The embeddable zip does NOT ship venv or ensurepip.
-  // Install virtualenv (pure Python wheel) into the embedded layout, then
-  // use it to create a full venv that has a proper site-packages layout.
-  await spawnPromise(embedPy, [
-    "-m", "pip", "install", "--no-warn-script-location", "virtualenv",
-  ]);
-  await spawnPromise(embedPy, ["-m", "virtualenv", "--clear", venvDir]);
-
-  sendProgress("install", 50, "Installing backend dependencies (this may take a while)…");
-
-  const requirementsTxt = app.isPackaged
-    ? path.join(process.resourcesPath, "backend", "requirements.txt")
-    : path.join(__dirname, "../../backend/requirements.txt");
-
-  const venvPy = getVenvPython();
-  await spawnPromise(venvPy, ["-m", "pip", "install", "--no-warn-script-location", "--upgrade", "pip"]);
-  await spawnPromiseWithProgress(
-    venvPy,
-    ["-m", "pip", "install", "--no-warn-script-location", "-r", requirementsTxt],
-    (line) => {
-      const m = line.match(/(?:Collecting|Installing collected packages:|Successfully installed)\s+(.+)/);
-      if (m) sendProgress("install", 60, `Installing: ${m[1].slice(0, 60)}`);
-    },
-  );
-}
-
-/**
- * macOS / Linux: create a venv inside userData using whatever system python3
- * is available, then pip-install backend deps into it.
- */
-async function installVenvUnix(): Promise<void> {
-  const venvDir = path.join(app.getPath("userData"), "cadviewer-venv");
-
-  sendProgress("install", 10, "Creating Python virtual environment…");
-
-  // Find a usable system python3
-  const systemPython = await (async () => {
-    for (const cmd of ["python3", "python"]) {
-      try {
-        await runPython(cmd, ["--version"]);
-        return cmd;
-      } catch { /* skip */ }
-    }
-    throw new Error(
-      "No Python 3 found on this system. Please install Python 3.9+ from python.org.",
-    );
-  })();
-
-  await spawnPromise(systemPython, ["-m", "venv", "--clear", venvDir]);
-
-  sendProgress("install", 40, "Installing backend dependencies (this may take a while)…");
-
-  const pyExe = getAppPython();
-  const requirementsTxt = app.isPackaged
-    ? path.join(process.resourcesPath, "backend", "requirements.txt")
-    : path.join(__dirname, "../../backend/requirements.txt");
-
-  await spawnPromise(pyExe, ["-m", "pip", "install", "--upgrade", "pip"]);
-  await spawnPromiseWithProgress(
-    pyExe,
-    ["-m", "pip", "install", "-r", requirementsTxt],
-    (line) => {
-      const m = line.match(/(?:Collecting|Installing collected packages:|Successfully installed)\s+(.+)/);
-      if (m) sendProgress("install", 60, `Installing: ${m[1].slice(0, 60)}`);
-    },
-  );
-}
 
 function spawnPromiseWithProgress(
   cmd: string,
   args: string[],
   onLine: (line: string) => void,
+  env?: NodeJS.ProcessEnv,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: env ?? process.env });
     const outLines: string[] = [];
     let buf = "";
     const handleChunk = (d: Buffer) => {
@@ -403,9 +276,9 @@ function spawnPromiseWithProgress(
   });
 }
 
-function spawnPromise(cmd: string, args: string[]): Promise<void> {
+function spawnPromise(cmd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: env ?? process.env });
     const outLines: string[] = [];
     proc.stdout?.on("data", (d: Buffer) => {
       const s = d.toString();

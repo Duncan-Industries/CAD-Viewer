@@ -19,13 +19,13 @@ extraResources:
     filter:
       - "cadviewer-api"
       - "cadviewer-api.exe"
-  # Bundled Python 3.11 embeddable zip (Windows only, ~12 MB)
-  # Download before building: curl -Lo frontend/build-resources/python/python-3.11-embed-amd64.zip
-  #   https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip
-  - from: build-resources/python/
-    to: python
+  # uv binary — manages Python download + venv + package install
+  # Download before building: see .github/workflows/build.yml
+  - from: build-resources/uv/
+    to: uv
     filter:
-      - "python-3.11-embed-amd64.zip"
+      - "uv"
+      - "uv.exe"
 
 # ------- Platform targets -------
 

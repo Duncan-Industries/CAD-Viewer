@@ -45,16 +45,20 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Download Python embeddable zip for bundling
+      - name: Download uv for bundling
         shell: pwsh
         run: |
-          $dest = "frontend/build-resources/python"
+          $dest = "frontend/build-resources/uv"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          $zip = "$dest/python-3.11-embed-amd64.zip"
-          if (-not (Test-Path $zip)) {
+          $out = "$dest/uv.exe"
+          if (-not (Test-Path $out)) {
+            $tag = (Invoke-RestMethod "https://api.github.com/repos/astral-sh/uv/releases/latest").tag_name
             Invoke-WebRequest `
-              -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip" `
-              -OutFile $zip
+              -Uri "https://github.com/astral-sh/uv/releases/download/$tag/uv-x86_64-pc-windows-msvc.zip" `
+              -OutFile "$dest/uv.zip"
+            Expand-Archive -Force -Path "$dest/uv.zip" -DestinationPath "$dest"
+            Move-Item -Force "$dest/uv-x86_64-pc-windows-msvc/uv.exe" "$dest/uv.exe"
+            Remove-Item -Recurse -Force "$dest/uv.zip","$dest/uv-x86_64-pc-windows-msvc"
           }
 
       - name: Build Electron (compile only)
