@@ -10,7 +10,8 @@ type Stage =
   | "ready"           // Python found, starting backend
   | "backend_starting"
   | "backend_ready"
-  | "needs_download"  // Python not found
+  | "needs_download"  // Python not found, must download zip first
+  | "needs_install"   // Zip already bundled/downloaded, just need to install deps
   | "downloading"
   | "download_done"
   | "installing"
@@ -104,6 +105,9 @@ export function PythonSetup({ onReady }: Props) {
         dispatch({ type: "SET_PYTHON_VERSION", version: result.version });
         dispatch({ type: "SET_STAGE", stage: "ready", message: `Found ${result.version}` });
         await startBackend();
+      } else if (result.bundled) {
+        // Zip is shipped in the installer — skip download, go straight to install
+        dispatch({ type: "SET_STAGE", stage: "needs_install", message: "Python runtime is bundled. Ready to set up." });
       } else {
         dispatch({ type: "SET_STAGE", stage: "needs_download", message: "Python 3 not found on this system." });
       }
@@ -130,21 +134,31 @@ export function PythonSetup({ onReady }: Props) {
   async function handleDownload() {
     dispatch({ type: "SET_STAGE", stage: "downloading", message: "Starting download…" });
     try {
-      const installerPath = await api.downloadPython();
-      dispatch({ type: "SET_INSTALLER_PATH", path: installerPath });
+      const zipPath = await api.downloadPython();
+      dispatch({ type: "SET_INSTALLER_PATH", path: zipPath });
       dispatch({ type: "SET_STAGE", stage: "download_done", message: "Download complete." });
     } catch (e) {
       dispatch({ type: "SET_ERROR", detail: String(e) });
     }
   }
 
-  async function handleInstall() {
-    if (!state.installerPath) return;
-    dispatch({ type: "SET_STAGE", stage: "installing", message: "Installing Python 3.11…" });
+  async function handleInstall(zipPath?: string | null) {
+    dispatch({ type: "SET_STAGE", stage: "installing", message: "Setting up Python environment…" });
     try {
-      await api.installPython(state.installerPath);
-      dispatch({ type: "SET_STAGE", stage: "install_done", message: "Python installed! Verifying…" });
+      await api.installPython(zipPath ?? state.installerPath ?? "");
+      dispatch({ type: "SET_STAGE", stage: "install_done", message: "Environment ready! Verifying…" });
       await checkPython();
+    } catch (e) {
+      dispatch({ type: "SET_ERROR", detail: String(e) });
+    }
+  }
+
+  async function handleBundledInstall() {
+    // Bundled zip: call download (returns path immediately) then install
+    dispatch({ type: "SET_STAGE", stage: "downloading", message: "Preparing bundled Python…" });
+    try {
+      const zipPath = await api.downloadPython();
+      await handleInstall(zipPath);
     } catch (e) {
       dispatch({ type: "SET_ERROR", detail: String(e) });
     }
@@ -164,6 +178,7 @@ export function PythonSetup({ onReady }: Props) {
 
   const showDownloadButton = state.stage === "needs_download";
   const showInstallButton = state.stage === "download_done";
+  const showBundledInstallButton = state.stage === "needs_install";
   const showRetry = state.stage === "error";
   const isDone = state.stage === "backend_ready";
 
@@ -222,7 +237,7 @@ export function PythonSetup({ onReady }: Props) {
           </pre>
         )}
 
-        {/* Info box for needs_download */}
+        {/* Info box for needs_download (zip not bundled) */}
         {state.stage === "needs_download" && (
           <div className="rounded-lg bg-amber-950/30 border border-amber-700/30 p-4 flex gap-3">
             <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -231,6 +246,19 @@ export function PythonSetup({ onReady }: Props) {
             <div className="text-xs text-amber-200/80 leading-relaxed">
               <p className="font-semibold text-amber-300 mb-1">Python runtime not set up</p>
               <p>CADViewer needs a Python 3.11 runtime to process CAD files. It will be downloaded and installed <strong>only for this app</strong> — your system is not modified.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Info box for needs_install (zip is bundled) */}
+        {state.stage === "needs_install" && (
+          <div className="rounded-lg bg-blue-950/30 border border-blue-700/30 p-4 flex gap-3">
+            <svg className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div className="text-xs text-blue-200/80 leading-relaxed">
+              <p className="font-semibold text-blue-300 mb-1">Python runtime is included</p>
+              <p>One-time setup: install backend dependencies (~500 MB). Only for this app — your system is not modified.</p>
             </div>
           </div>
         )}
@@ -248,8 +276,17 @@ export function PythonSetup({ onReady }: Props) {
 
           {showInstallButton && (
             <button
-              onClick={handleInstall}
+              onClick={() => handleInstall()}
               className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
+            >
+              Set Up Python Environment
+            </button>
+          )}
+
+          {showBundledInstallButton && (
+            <button
+              onClick={handleBundledInstall}
+              className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
             >
               Set Up Python Environment
             </button>
@@ -265,7 +302,7 @@ export function PythonSetup({ onReady }: Props) {
           )}
 
           {/* Always show re-check option when stuck at needs_download or error */}
-          {(state.stage === "needs_download" || state.stage === "error") && (
+          {(state.stage === "needs_download" || state.stage === "needs_install" || state.stage === "error") && (
             <button
               onClick={checkPython}
               className="w-full py-2 rounded-lg border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-300 text-xs transition-colors"

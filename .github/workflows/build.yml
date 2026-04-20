@@ -45,6 +45,18 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Download Python embeddable zip for bundling
+        shell: pwsh
+        run: |
+          $dest = "frontend/build-resources/python"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $zip = "$dest/python-3.11-embed-amd64.zip"
+          if (-not (Test-Path $zip)) {
+            Invoke-WebRequest `
+              -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip" `
+              -OutFile $zip
+          }
+
       - name: Build Electron (compile only)
         shell: pwsh
         working-directory: frontend

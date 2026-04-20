@@ -13,6 +13,9 @@ frontend/dist/
 frontend/out/
 frontend/.vite/
 
+# Build resources (downloaded at build time)
+frontend/build-resources/python/*.zip
+
 # Misc
 .env
 .env.*

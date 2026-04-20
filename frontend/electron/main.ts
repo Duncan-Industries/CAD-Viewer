@@ -30,6 +30,14 @@ function getEmbedDir(): string {
   return path.join(app.getPath("userData"), "python-embedded");
 }
 
+// Bundled zip shipped inside the installer under resources/python/
+function getBundledZipPath(): string | null {
+  const p = app.isPackaged
+    ? path.join(process.resourcesPath, "python", "python-3.11-embed-amd64.zip")
+    : path.join(__dirname, "../../build-resources/python/python-3.11-embed-amd64.zip");
+  return fs.existsSync(p) ? p : null;
+}
+
 // The venv Python executable (used by backend at runtime on all platforms)
 function getVenvPython(): string {
   const venvDir = path.join(app.getPath("userData"), "cadviewer-venv");
@@ -139,17 +147,19 @@ function waitForBackend(port: number, timeoutMs = 90_000): Promise<void> {
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("python:check", async () => {
-  // 1. Check if app-local Python is already set up
+  const bundled = getBundledZipPath() !== null;
+
+  // 1. Check if app-local venv is already set up
   if (appPythonExists()) {
     try {
       const version = await runPython(getAppPython(), ["--version"]);
-      return { found: true, version: version.trim(), embedded: true };
+      return { found: true, version: version.trim(), embedded: true, bundled };
     } catch {
-      // embedded Python broken, fall through
+      // venv broken, fall through
     }
   }
 
-  // 2. Check system Python (only used as a venv bootstrap on Mac/Linux)
+  // 2. Check system Python (used as venv bootstrap on Mac/Linux)
   if (process.platform !== "win32") {
     const candidates = ["python3", "python"];
     for (const cmd of candidates) {
@@ -157,7 +167,7 @@ ipcMain.handle("python:check", async () => {
         const version = await runPython(cmd, ["--version"]);
         const match = version.match(/Python (\d+)\.(\d+)/);
         if (match && parseInt(match[1]) === 3 && parseInt(match[2]) >= 9) {
-          return { found: true, version: version.trim(), cmd, embedded: false };
+          return { found: true, version: version.trim(), cmd, embedded: false, bundled };
         }
       } catch {
         // not available
@@ -165,7 +175,7 @@ ipcMain.handle("python:check", async () => {
     }
   }
 
-  return { found: false };
+  return { found: false, bundled };
 });
 
 function runPython(cmd: string, args: string[]): Promise<string> {
@@ -183,18 +193,19 @@ function runPython(cmd: string, args: string[]): Promise<string> {
 
 ipcMain.handle("python:download", async () => {
   if (process.platform === "win32") {
-    const destPath = path.join(
-      app.getPath("userData"),
-      "python-3.11-embed.zip",
-    );
+    // Use bundled zip if available — no download needed
+    const bundled = getBundledZipPath();
+    if (bundled) {
+      sendProgress("download", 100, "Using bundled Python runtime.");
+      return bundled;
+    }
+    const destPath = path.join(app.getPath("userData"), "python-3.11-embed.zip");
     await downloadFile(PYTHON_EMBED_URL, destPath, "Downloading Python 3.11 (embedded)…");
     return destPath;
   }
 
-  // macOS / Linux: just need get-pip.py once the venv is created
-  const destPath = path.join(app.getPath("userData"), "get-pip.py");
-  await downloadFile(GET_PIP_URL, destPath, "Downloading pip bootstrap…");
-  return destPath; // path not used directly on these platforms
+  // macOS / Linux: venv is created from system python3, no zip needed
+  return null;
 });
 
 async function downloadFile(
