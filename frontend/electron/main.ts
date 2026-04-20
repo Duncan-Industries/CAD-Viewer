@@ -326,6 +326,8 @@ ipcMain.handle("backend:start", async () => {
     ? getBackendBinaryWithPython(getAppPython())
     : getBackendBinary();
 
+  const backendLog: string[] = [];
+
   backend = spawn(cmd, args, {
     cwd,
     env: {
@@ -336,23 +338,26 @@ ipcMain.handle("backend:start", async () => {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  backend.stdout?.on("data", (d: Buffer) =>
-    process.stdout.write(`[backend] ${d.toString()}`),
-  );
-  backend.stderr?.on("data", (d: Buffer) =>
-    process.stderr.write(`[backend] ${d.toString()}`),
-  );
+  backend.stdout?.on("data", (d: Buffer) => {
+    const s = d.toString();
+    backendLog.push(s);
+    process.stdout.write(`[backend] ${s}`);
+  });
+  backend.stderr?.on("data", (d: Buffer) => {
+    const s = d.toString();
+    backendLog.push(s);
+    process.stderr.write(`[backend] ${s}`);
+  });
 
   backend.on("exit", (code, signal) => {
     backendStatus = code === 0 ? "stopped" : "error";
     if (code !== 0 && !app.isQuitting) {
-      console.error(
-        `[backend] exited unexpectedly (code=${code} signal=${signal})`,
-      );
+      const tail = backendLog.slice(-20).join("").trim();
+      console.error(`[backend] exited (code=${code} signal=${signal})\n${tail}`);
       mainWindow?.webContents.send("setup:progress", {
         stage: "backend",
         percent: 0,
-        message: `Backend crashed (exit code ${code})`,
+        message: `Startup failed (exit ${code}):\n${tail.slice(0, 300)}`,
       });
     }
   });
@@ -364,7 +369,8 @@ ipcMain.handle("backend:start", async () => {
     return { ok: true };
   } catch (err) {
     backendStatus = "error";
-    return { ok: false, reason: String(err) };
+    const tail = backendLog.slice(-20).join("").trim();
+    return { ok: false, reason: `${String(err)}\n\n${tail}`.trim() };
   }
 });
 
