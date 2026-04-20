@@ -232,7 +232,7 @@ ipcMain.handle("python:install", async () => {
 
   await spawnPromiseWithProgress(
     uv,
-    ["pip", "install", "--python", getVenvPython(), "-r", requirementsTxt],
+    ["pip", "install", "--python", getVenvPython(), "--index-strategy", "unsafe-best-match", "-r", requirementsTxt],
     (line) => {
       const m = line.match(/(?:Resolved|Prepared|Installed|Downloading)\s+(.+)/);
       if (m) sendProgress("install", 50, `${m[0].slice(0, 70)}`);
