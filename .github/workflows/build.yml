@@ -45,10 +45,20 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Build Electron Windows package
+      - name: Build Electron (compile only)
         shell: pwsh
         working-directory: frontend
-        run: npm run dist:win
+        run: npm run build:electron
+
+      - name: List build output
+        shell: pwsh
+        working-directory: frontend
+        run: Get-ChildItem -Recurse out/ | Select-Object FullName
+
+      - name: Package Electron Windows
+        shell: pwsh
+        working-directory: frontend
+        run: npx electron-builder --win --publish=never
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v7
