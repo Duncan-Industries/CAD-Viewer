@@ -10,7 +10,7 @@ export default defineConfig({
       lib: {
         entry: resolve("electron/main.ts"),
       },
-      outDir: "electron/dist",
+      outDir: "out/main",
       rollupOptions: {
         external: ["electron"],
       },
@@ -22,7 +22,7 @@ export default defineConfig({
       lib: {
         entry: resolve("electron/preload.ts"),
       },
-      outDir: "electron/dist",
+      outDir: "out/main",
       rollupOptions: {
         external: ["electron"],
       },
@@ -34,7 +34,7 @@ export default defineConfig({
     plugins: [react(), tailwindcss()],
     base: "./",
     build: {
-      outDir: "dist/renderer",
+      outDir: "out/renderer",
       emptyOutDir: true,
       rollupOptions: {
         input: resolve("index.html"),

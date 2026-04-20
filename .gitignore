@@ -10,7 +10,7 @@ backend/dist/
 # Node
 node_modules/
 frontend/dist/
-frontend/electron/dist/
+frontend/out/
 frontend/.vite/
 
 # Misc
