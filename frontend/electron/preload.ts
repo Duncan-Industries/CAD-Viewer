@@ -10,8 +10,7 @@ contextBridge.exposeInMainWorld("cadviewer", {
   // Python / backend setup
   checkPython: () => ipcRenderer.invoke("python:check"),
   downloadPython: () => ipcRenderer.invoke("python:download"),
-  installPython: (installerPath: string) =>
-    ipcRenderer.invoke("python:install", installerPath),
+  installPython: () => ipcRenderer.invoke("python:install"),
   startBackend: () => ipcRenderer.invoke("backend:start"),
   getBackendStatus: () => ipcRenderer.invoke("backend:status"),
 

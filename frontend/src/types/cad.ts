@@ -50,7 +50,7 @@ export interface CADViewerBridge {
   platform: string;
   checkPython: () => Promise<{ found: boolean; version?: string; cmd?: string; bundled?: boolean }>;
   downloadPython: () => Promise<string>;
-  installPython: (installerPath: string) => Promise<boolean>;
+  installPython: () => Promise<boolean>;
   startBackend: () => Promise<{ ok: boolean; reason?: string }>;
   getBackendStatus: () => Promise<string>;
   onSetupProgress: (

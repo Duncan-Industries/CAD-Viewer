@@ -24,7 +24,6 @@ interface State {
   percent: number;
   errorDetail: string | null;
   pythonVersion: string | null;
-  installerPath: string | null;
 }
 
 type Action =
@@ -32,7 +31,7 @@ type Action =
   | { type: "SET_PROGRESS"; percent: number; message: string }
   | { type: "SET_ERROR"; detail: string }
   | { type: "SET_PYTHON_VERSION"; version: string }
-  | { type: "SET_INSTALLER_PATH"; path: string };
+;
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -44,8 +43,6 @@ function reducer(state: State, action: Action): State {
       return { ...state, stage: "error", errorDetail: action.detail };
     case "SET_PYTHON_VERSION":
       return { ...state, pythonVersion: action.version };
-    case "SET_INSTALLER_PATH":
-      return { ...state, installerPath: action.path };
     default:
       return state;
   }
@@ -57,7 +54,6 @@ const INITIAL: State = {
   percent: 0,
   errorDetail: null,
   pythonVersion: null,
-  installerPath: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -131,20 +127,14 @@ export function PythonSetup({ onReady }: Props) {
   }
 
   async function handleDownload() {
-    dispatch({ type: "SET_STAGE", stage: "downloading", message: "Starting download…" });
-    try {
-      const zipPath = await api.downloadPython();
-      dispatch({ type: "SET_INSTALLER_PATH", path: zipPath });
-      dispatch({ type: "SET_STAGE", stage: "download_done", message: "Download complete." });
-    } catch (e) {
-      dispatch({ type: "SET_ERROR", detail: String(e) });
-    }
+    // download is a no-op with uv — go straight to install
+    await handleInstall();
   }
 
-  async function handleInstall(zipPath?: string | null) {
+  async function handleInstall() {
     dispatch({ type: "SET_STAGE", stage: "installing", message: "Installing… this may take a few minutes" });
     try {
-      await api.installPython(zipPath ?? state.installerPath ?? "");
+      await api.installPython();
       dispatch({ type: "SET_STAGE", stage: "install_done", message: "Finishing up…" });
       await checkPython();
     } catch (e) {
@@ -153,13 +143,7 @@ export function PythonSetup({ onReady }: Props) {
   }
 
   async function handleBundledInstall() {
-    dispatch({ type: "SET_STAGE", stage: "downloading", message: "Preparing…" });
-    try {
-      const zipPath = await api.downloadPython();
-      await handleInstall(zipPath);
-    } catch (e) {
-      dispatch({ type: "SET_ERROR", detail: String(e) });
-    }
+    await handleInstall();
   }
 
   // ---------------------------------------------------------------------------

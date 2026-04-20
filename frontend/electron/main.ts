@@ -196,9 +196,7 @@ ipcMain.handle("python:download", async () => {
 ipcMain.handle("python:install", async () => {
   const uv = getUvExe();
   if (!fs.existsSync(uv)) {
-    throw new Error(
-      `uv not found at ${uv}. Please reinstall CADViewer.`,
-    );
+    throw new Error(`uv not found at ${uv}. Please reinstall CADViewer.`);
   }
 
   const venvDir = getVenvDir();
@@ -208,19 +206,20 @@ ipcMain.handle("python:install", async () => {
     fs.rmSync(venvDir, { recursive: true, force: true });
   }
 
-  const uvEnv = {
+  // Base env: keep all uv state inside userData, never touch system
+  const uvBase = {
     ...process.env,
-    // Keep uv's Python/cache inside userData — never touches system
     UV_CACHE_DIR: getUvCacheDir(),
     UV_PYTHON_INSTALL_DIR: path.join(app.getPath("userData"), "uv-python"),
+    UV_PYTHON_DOWNLOADS: "automatic",
   };
 
   sendProgress("install", 10, "Creating Python 3.11 environment…");
 
-  // uv downloads Python 3.11 automatically if not cached
-  await spawnPromise(uv, ["venv", "--python", "3.11", venvDir], uvEnv);
+  // uv venv: creates the venv and auto-downloads Python 3.11 if needed
+  await spawnPromise(uv, ["venv", venvDir, "--python", "3.11"], uvBase);
 
-  sendProgress("install", 30, "Installing backend dependencies (this may take a while)…");
+  sendProgress("install", 30, "Installing components (this may take a few minutes)…");
 
   const requirementsTxt = app.isPackaged
     ? path.join(process.resourcesPath, "backend", "requirements.txt")
@@ -230,14 +229,21 @@ ipcMain.handle("python:install", async () => {
     throw new Error(`requirements.txt not found at: ${requirementsTxt}`);
   }
 
+  // uv pip install: set VIRTUAL_ENV so uv installs into the venv's site-packages
+  // (--python with a venv dir is for uv venv only; pip subcommand needs VIRTUAL_ENV)
+  const uvPipEnv = {
+    ...uvBase,
+    VIRTUAL_ENV: venvDir,
+  };
+
   await spawnPromiseWithProgress(
     uv,
-    ["pip", "install", "--python", getVenvPython(), "--index-strategy", "unsafe-best-match", "-r", requirementsTxt],
+    ["pip", "install", "--index-strategy", "unsafe-best-match", "-r", requirementsTxt],
     (line) => {
       const m = line.match(/(?:Resolved|Prepared|Installed|Downloading)\s+(.+)/);
-      if (m) sendProgress("install", 50, `${m[0].slice(0, 70)}`);
+      if (m) sendProgress("install", 50, m[0].slice(0, 70));
     },
-    uvEnv,
+    uvPipEnv,
   );
 
   sendProgress("install", 100, "Python environment ready.");
