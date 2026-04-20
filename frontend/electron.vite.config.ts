@@ -22,7 +22,7 @@ export default defineConfig({
       lib: {
         entry: resolve("electron/preload.ts"),
       },
-      outDir: "out/main",
+      outDir: "out/preload",
       rollupOptions: {
         external: ["electron"],
       },
