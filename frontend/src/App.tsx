@@ -5,6 +5,7 @@ import { FileUpload } from "./components/FileUpload";
 import { Viewer3D } from "./components/Viewer3D";
 import { AssemblyTree } from "./components/AssemblyTree";
 import { AnnotationsPanel, MetadataPanel } from "./components/AnnotationsPanel";
+import { PythonSetup } from "./components/PythonSetup";
 import { useCADFile } from "./hooks/useCADFile";
 import type { PanelTab, ViewMode } from "./types/cad";
 
@@ -52,9 +53,17 @@ export default function App() {
   const { status, cadFile, error, load, reset } = useCADFile();
   const [viewMode, setViewMode] = useState<ViewMode>("solid");
   const [tab, setTab] = useState<PanelTab>("assembly");
+  const [backendReady, setBackendReady] = useState(
+    // In a browser/web context (no Electron IPC) skip the setup screen
+    !window.cadviewer?.startBackend,
+  );
 
   const isLoading = status === "uploading" || status === "processing";
   const hasFile = cadFile !== null;
+
+  if (!backendReady) {
+    return <PythonSetup onReady={() => setBackendReady(true)} />;
+  }
 
   return (
     <div className="flex flex-col h-full bg-slate-950 text-slate-100">

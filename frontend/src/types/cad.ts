@@ -45,3 +45,21 @@ export interface ProcessedFile {
 
 export type ViewMode = "solid" | "wireframe" | "transparent";
 export type PanelTab = "assembly" | "annotations" | "metadata";
+
+export interface CADViewerBridge {
+  platform: string;
+  checkPython: () => Promise<{ found: boolean; version?: string; cmd?: string }>;
+  downloadPython: () => Promise<string>;
+  installPython: (installerPath: string) => Promise<boolean>;
+  startBackend: () => Promise<{ ok: boolean; reason?: string }>;
+  getBackendStatus: () => Promise<string>;
+  onSetupProgress: (
+    cb: (event: { stage: string; percent: number; message: string }) => void,
+  ) => () => void;
+}
+
+declare global {
+  interface Window {
+    cadviewer?: CADViewerBridge;
+  }
+}
