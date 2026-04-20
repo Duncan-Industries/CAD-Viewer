@@ -19,6 +19,10 @@ extraResources:
     filter:
       - "cadviewer-api"
       - "cadviewer-api.exe"
+  - from: ../backend/
+    to: backend
+    filter:
+      - "requirements.txt"
   # uv binary — manages Python download + venv + package install
   # Download before building: see .github/workflows/build.yml
   - from: build-resources/uv/

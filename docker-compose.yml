@@ -1,7 +1,6 @@
-version: "3.9"
-
 services:
   backend:
+    image: ghcr.io/duncan-industries/cadviewer-backend:latest
     build: ./backend
     ports:
       - "8000:8000"
@@ -10,13 +9,21 @@ services:
     environment:
       - GLB_DIR=/tmp/cadviewer_glb
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   frontend:
+    image: ghcr.io/duncan-industries/cadviewer-frontend:latest
     build: ./frontend
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
