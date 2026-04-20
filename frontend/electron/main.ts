@@ -300,9 +300,13 @@ async function installEmbeddedWindows(zipPath: string): Promise<void> {
 
   sendProgress("install", 35, "Creating isolated Python environment…");
 
-  // Create a proper venv from the embedded interpreter.
-  // Venvs have a complete site-packages layout that binary wheels need.
-  await spawnPromise(embedPy, ["-m", "venv", "--clear", venvDir]);
+  // The embeddable zip does NOT ship venv or ensurepip.
+  // Install virtualenv (pure Python wheel) into the embedded layout, then
+  // use it to create a full venv that has a proper site-packages layout.
+  await spawnPromise(embedPy, [
+    "-m", "pip", "install", "--no-warn-script-location", "virtualenv",
+  ]);
+  await spawnPromise(embedPy, ["-m", "virtualenv", "--clear", venvDir]);
 
   sendProgress("install", 50, "Installing backend dependencies (this may take a while)…");
 
