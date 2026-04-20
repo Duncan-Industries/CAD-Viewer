@@ -8,9 +8,16 @@ directories:
 
 # What goes inside the ASAR archive (renderer + electron bootstrap)
 files:
-  - electron/dist/**
-  - dist/renderer/**
-  - "!**/*.map"
+  - from: electron/dist
+    to: electron/dist
+    filter:
+      - "**/*"
+      - "!**/*.map"
+  - from: dist/renderer
+    to: dist/renderer
+    filter:
+      - "**/*"
+      - "!**/*.map"
 
 # The PyInstaller binary is placed outside ASAR in resources/backend/
 extraResources:

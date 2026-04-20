@@ -4,11 +4,13 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
-dist/
+/dist/
+backend/dist/
 
 # Node
 node_modules/
 frontend/dist/
+frontend/electron/dist/
 frontend/.vite/
 
 # Misc
