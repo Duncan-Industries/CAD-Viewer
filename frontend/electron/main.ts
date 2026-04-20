@@ -30,16 +30,17 @@ function getEmbedDir(): string {
   return path.join(app.getPath("userData"), "python-embedded");
 }
 
-// The python executable for this app
-function getAppPython(): string {
-  if (process.platform === "win32") {
-    return path.join(getEmbedDir(), "python.exe");
-  }
-  // macOS / Linux: venv inside userData
-  const venvDir = path.join(app.getPath("userData"), "python-venv");
-  return process.platform === "darwin"
-    ? path.join(venvDir, "bin", "python3")
+// The venv Python executable (used by backend at runtime on all platforms)
+function getVenvPython(): string {
+  const venvDir = path.join(app.getPath("userData"), "cadviewer-venv");
+  return process.platform === "win32"
+    ? path.join(venvDir, "Scripts", "python.exe")
     : path.join(venvDir, "bin", "python3");
+}
+
+// Alias used throughout
+function getAppPython(): string {
+  return getVenvPython();
 }
 
 function appPythonExists(): boolean {
@@ -233,6 +234,12 @@ async function downloadFile(
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("python:install", async (_event, zipOrPipPath: string) => {
+  // Clean up any stale partial installs so retries start fresh
+  const venvDir = path.join(app.getPath("userData"), "cadviewer-venv");
+  if (fs.existsSync(venvDir)) {
+    fs.rmSync(venvDir, { recursive: true, force: true });
+  }
+
   if (process.platform === "win32") {
     await installEmbeddedWindows(zipOrPipPath);
   } else {
@@ -243,11 +250,14 @@ ipcMain.handle("python:install", async (_event, zipOrPipPath: string) => {
 });
 
 /**
- * Windows: extract embeddable zip → patch python311._pth → bootstrap pip
- * → install backend deps. Everything lives in userData/python-embedded/.
+ * Windows: extract embeddable zip → use it to create a proper venv →
+ * pip-install backend deps into the venv.
+ * The venv has a full site-packages layout, so heavy binary wheels work.
+ * The embeddable zip itself is only used as the Python interpreter seed.
  */
 async function installEmbeddedWindows(zipPath: string): Promise<void> {
   const embedDir = getEmbedDir();
+  const venvDir = path.join(app.getPath("userData"), "cadviewer-venv");
   fs.mkdirSync(embedDir, { recursive: true });
 
   sendProgress("install", 5, "Extracting Python…");
@@ -255,17 +265,15 @@ async function installEmbeddedWindows(zipPath: string): Promise<void> {
   // Use PowerShell Expand-Archive (built-in on all modern Windows)
   await spawnPromise("powershell", [
     "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
     "-Command",
     `Expand-Archive -Force -Path '${zipPath}' -DestinationPath '${embedDir}'`,
   ]);
 
-  sendProgress("install", 30, "Configuring embedded Python…");
+  sendProgress("install", 20, "Bootstrapping pip…");
 
-  // The embeddable zip ships with python311._pth which has `import site`
-  // commented out — uncomment it so pip packages are importable.
-  const pthFiles = fs
-    .readdirSync(embedDir)
-    .filter((f) => f.endsWith("._pth"));
+  // Patch _pth so the embedded interpreter can find its own stdlib
+  const pthFiles = fs.readdirSync(embedDir).filter((f) => f.endsWith("._pth"));
   for (const pth of pthFiles) {
     const pthPath = path.join(embedDir, pth);
     let content = fs.readFileSync(pthPath, "utf8");
@@ -273,29 +281,34 @@ async function installEmbeddedWindows(zipPath: string): Promise<void> {
     fs.writeFileSync(pthPath, content, "utf8");
   }
 
-  sendProgress("install", 40, "Bootstrapping pip…");
-
-  // Download get-pip.py into the embed dir and run it
+  // Bootstrap pip into the embeddable layout
   const getPipPath = path.join(embedDir, "get-pip.py");
-  await downloadFile(GET_PIP_URL, getPipPath, "Downloading pip…");
+  await downloadFile(GET_PIP_URL, getPipPath, "Downloading pip bootstrap…");
+  const embedPy = path.join(embedDir, "python.exe");
+  await spawnPromise(embedPy, [getPipPath, "--no-warn-script-location"]);
 
-  const pyExe = getAppPython();
-  await spawnPromise(pyExe, [getPipPath, "--no-warn-script-location"]);
+  sendProgress("install", 35, "Creating isolated Python environment…");
 
-  sendProgress("install", 60, "Installing backend dependencies…");
+  // Create a proper venv from the embedded interpreter.
+  // Venvs have a complete site-packages layout that binary wheels need.
+  await spawnPromise(embedPy, ["-m", "venv", "--clear", venvDir]);
+
+  sendProgress("install", 50, "Installing backend dependencies (this may take a while)…");
 
   const requirementsTxt = app.isPackaged
     ? path.join(process.resourcesPath, "backend", "requirements.txt")
     : path.join(__dirname, "../../backend/requirements.txt");
 
-  await spawnPromise(pyExe, [
-    "-m",
-    "pip",
-    "install",
-    "--no-warn-script-location",
-    "-r",
-    requirementsTxt,
-  ]);
+  const venvPy = getVenvPython();
+  await spawnPromise(venvPy, ["-m", "pip", "install", "--no-warn-script-location", "--upgrade", "pip"]);
+  await spawnPromiseWithProgress(
+    venvPy,
+    ["-m", "pip", "install", "--no-warn-script-location", "-r", requirementsTxt],
+    (line) => {
+      const m = line.match(/(?:Collecting|Installing collected packages:|Successfully installed)\s+(.+)/);
+      if (m) sendProgress("install", 60, `Installing: ${m[1].slice(0, 60)}`);
+    },
+  );
 }
 
 /**
@@ -303,7 +316,7 @@ async function installEmbeddedWindows(zipPath: string): Promise<void> {
  * is available, then pip-install backend deps into it.
  */
 async function installVenvUnix(): Promise<void> {
-  const venvDir = path.join(app.getPath("userData"), "python-venv");
+  const venvDir = path.join(app.getPath("userData"), "cadviewer-venv");
 
   sendProgress("install", 10, "Creating Python virtual environment…");
 
@@ -320,30 +333,86 @@ async function installVenvUnix(): Promise<void> {
     );
   })();
 
-  await spawnPromise(systemPython, ["-m", "venv", "--upgrade-deps", venvDir]);
+  await spawnPromise(systemPython, ["-m", "venv", "--clear", venvDir]);
 
-  sendProgress("install", 40, "Installing backend dependencies…");
+  sendProgress("install", 40, "Installing backend dependencies (this may take a while)…");
 
   const pyExe = getAppPython();
   const requirementsTxt = app.isPackaged
     ? path.join(process.resourcesPath, "backend", "requirements.txt")
     : path.join(__dirname, "../../backend/requirements.txt");
 
-  await spawnPromise(pyExe, ["-m", "pip", "install", "-r", requirementsTxt]);
+  await spawnPromise(pyExe, ["-m", "pip", "install", "--upgrade", "pip"]);
+  await spawnPromiseWithProgress(
+    pyExe,
+    ["-m", "pip", "install", "-r", requirementsTxt],
+    (line) => {
+      const m = line.match(/(?:Collecting|Installing collected packages:|Successfully installed)\s+(.+)/);
+      if (m) sendProgress("install", 60, `Installing: ${m[1].slice(0, 60)}`);
+    },
+  );
+}
+
+function spawnPromiseWithProgress(
+  cmd: string,
+  args: string[],
+  onLine: (line: string) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const outLines: string[] = [];
+    let buf = "";
+    const handleChunk = (d: Buffer) => {
+      const s = d.toString();
+      outLines.push(s);
+      buf += s;
+      const parts = buf.split("\n");
+      buf = parts.pop() ?? "";
+      for (const line of parts) if (line.trim()) onLine(line.trim());
+    };
+    proc.stdout?.on("data", (d: Buffer) => { process.stdout.write(`[setup] ${d.toString()}`); handleChunk(d); });
+    proc.stderr?.on("data", (d: Buffer) => { process.stderr.write(`[setup] ${d.toString()}`); handleChunk(d); });
+    proc.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        const tail = outLines.slice(-30).join("").trim();
+        reject(
+          new Error(
+            `'${path.basename(cmd)} ${args.slice(0, 3).join(" ")}…' failed (exit ${code}):\n\n${tail}`,
+          ),
+        );
+      }
+    });
+    proc.on("error", reject);
+  });
 }
 
 function spawnPromise(cmd: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
-    proc.stdout?.on("data", (d: Buffer) =>
-      process.stdout.write(`[setup] ${d.toString()}`),
-    );
-    proc.stderr?.on("data", (d: Buffer) =>
-      process.stderr.write(`[setup] ${d.toString()}`),
-    );
+    const outLines: string[] = [];
+    proc.stdout?.on("data", (d: Buffer) => {
+      const s = d.toString();
+      outLines.push(s);
+      process.stdout.write(`[setup] ${s}`);
+    });
+    proc.stderr?.on("data", (d: Buffer) => {
+      const s = d.toString();
+      outLines.push(s);
+      process.stderr.write(`[setup] ${s}`);
+    });
     proc.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`Command '${cmd} ${args.join(" ")}' exited with code ${code}`));
+      if (code === 0) {
+        resolve();
+      } else {
+        const tail = outLines.slice(-30).join("").trim();
+        reject(
+          new Error(
+            `'${path.basename(cmd)} ${args.slice(0, 3).join(" ")}…' failed (exit ${code}):\n\n${tail}`,
+          ),
+        );
+      }
     });
     proc.on("error", reject);
   });
