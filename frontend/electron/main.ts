@@ -152,13 +152,15 @@ ipcMain.handle("python:check", async () => {
   const uvExe = getUvExe();
   const uvAvailable = fs.existsSync(uvExe);
 
-  // If venv already exists and works, we're done
+  // If venv already exists, verify python works AND key packages are installed
   if (appPythonExists()) {
     try {
       const version = await runPython(getAppPython(), ["--version"]);
+      // Also check uvicorn is importable — guards against partial installs
+      await runPython(getAppPython(), ["-c", "import uvicorn"]);
       return { found: true, version: version.trim(), embedded: true, bundled: uvAvailable };
     } catch {
-      // venv broken, fall through to reinstall
+      // venv broken or incomplete — fall through to reinstall
     }
   }
 
@@ -219,6 +221,12 @@ ipcMain.handle("python:install", async () => {
   // uv venv: creates the venv and auto-downloads Python 3.11 if needed
   await spawnPromise(uv, ["venv", venvDir, "--python", "3.11"], uvBase);
 
+  // Verify the venv python actually exists before trying to install into it
+  const venvPy = getVenvPython();
+  if (!fs.existsSync(venvPy)) {
+    throw new Error(`Venv creation appeared to succeed but python not found at: ${venvPy}`);
+  }
+
   sendProgress("install", 30, "Installing components (this may take a few minutes)…");
 
   const requirementsTxt = app.isPackaged
@@ -229,21 +237,16 @@ ipcMain.handle("python:install", async () => {
     throw new Error(`requirements.txt not found at: ${requirementsTxt}`);
   }
 
-  // uv pip install: set VIRTUAL_ENV so uv installs into the venv's site-packages
-  // (--python with a venv dir is for uv venv only; pip subcommand needs VIRTUAL_ENV)
-  const uvPipEnv = {
-    ...uvBase,
-    VIRTUAL_ENV: venvDir,
-  };
-
+  // uv pip install --python <venvDir> installs into the venv's site-packages.
+  // Per uv docs: "--python also accepts a path to the root directory of a virtual environment"
   await spawnPromiseWithProgress(
     uv,
-    ["pip", "install", "--index-strategy", "unsafe-best-match", "-r", requirementsTxt],
+    ["pip", "install", "--python", venvDir, "--index-strategy", "unsafe-best-match", "-r", requirementsTxt],
     (line) => {
       const m = line.match(/(?:Resolved|Prepared|Installed|Downloading)\s+(.+)/);
       if (m) sendProgress("install", 50, m[0].slice(0, 70));
     },
-    uvPipEnv,
+    uvBase,
   );
 
   sendProgress("install", 100, "Python environment ready.");
