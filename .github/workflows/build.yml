@@ -56,9 +56,10 @@ jobs:
             Invoke-WebRequest `
               -Uri "https://github.com/astral-sh/uv/releases/download/$tag/uv-x86_64-pc-windows-msvc.zip" `
               -OutFile "$dest/uv.zip"
-            Expand-Archive -Force -Path "$dest/uv.zip" -DestinationPath "$dest"
-            Move-Item -Force "$dest/uv-x86_64-pc-windows-msvc/uv.exe" "$dest/uv.exe"
-            Remove-Item -Recurse -Force "$dest/uv.zip","$dest/uv-x86_64-pc-windows-msvc"
+            Expand-Archive -Force -Path "$dest/uv.zip" -DestinationPath "$dest/uv-extracted"
+            $uvBin = Get-ChildItem -Recurse -Filter "uv.exe" "$dest/uv-extracted" | Select-Object -First 1
+            Move-Item -Force $uvBin.FullName "$dest/uv.exe"
+            Remove-Item -Recurse -Force "$dest/uv.zip","$dest/uv-extracted"
           }
 
       - name: Build Electron (compile only)
