@@ -16,8 +16,6 @@ if hasattr(sys, "_MEIPASS"):
 
 
 def main() -> None:
-    import uvicorn
-
     port = int(os.environ.get("PORT", "48321"))
     glb_dir = os.environ.get(
         "GLB_DIR",
@@ -28,8 +26,12 @@ def main() -> None:
     # Expose GLB_DIR so main.py picks it up
     os.environ["GLB_DIR"] = glb_dir
 
+    # Import main directly so PyInstaller bundles it (string imports aren't traced)
+    import uvicorn
+    from main import app
+
     uvicorn.run(
-        "main:app",
+        app,
         host="127.0.0.1",
         port=port,
         log_level="warning",

@@ -8,6 +8,13 @@ block_cipher = None
 
 # Collect all hidden imports needed by cadquery / trimesh / fastapi
 hidden_imports = [
+    # Our app modules (belt-and-suspenders — run.py imports them directly)
+    "main",
+    "services",
+    "services.cad_processor",
+    "services.annotation_extractor",
+    "models",
+    "models.schemas",
     # FastAPI / uvicorn
     "uvicorn.logging",
     "uvicorn.loops",
