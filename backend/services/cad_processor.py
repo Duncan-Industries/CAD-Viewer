@@ -109,6 +109,17 @@ def convert(input_path: str, filename: str, output_dir: str, file_id: str) -> st
         try:
             _step_iges_to_stl(input_path, tmp_stl, ext)
             _stl_to_glb(tmp_stl, glb_path)
+        except Exception as cadquery_err:
+            # Fallback path: some environments/files fail OCC tessellation;
+            # try trimesh's direct loader before giving up.
+            try:
+                _direct_to_glb(input_path, glb_path)
+            except Exception as trimesh_err:
+                raise RuntimeError(
+                    "Failed to convert STEP/IGES file. "
+                    f"cadquery path error: {cadquery_err}; "
+                    f"trimesh fallback error: {trimesh_err}"
+                ) from trimesh_err
         finally:
             if os.path.exists(tmp_stl):
                 os.unlink(tmp_stl)

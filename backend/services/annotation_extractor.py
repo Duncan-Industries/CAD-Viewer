@@ -300,7 +300,7 @@ def extract_iges(filepath: str, filename: str, file_size: int) -> dict[str, Any]
 
         # Type 212: General Note entities
         note_pattern = re.compile(r"212,\d+,\d+,\d+,\d+,([^;]+);")
-        for m in note_pattern.finditer("".join(l[:72] for l in lines if len(l) >= 73 and line[72] in "PD")):
+        for m in note_pattern.finditer("".join(l[:72] for l in lines if len(l) >= 73 and l[72] in "PD")):
             text = m.group(1).strip()
             if text:
                 annotations.append(
