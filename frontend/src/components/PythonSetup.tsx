@@ -1,5 +1,8 @@
 import { useEffect, useReducer, useRef } from "react";
 import type { CADViewerBridge } from "../types/cad";
+import { Button } from "./ui/button";
+import { Card, CardContent } from "./ui/card";
+import { Spinner } from "./ui/spinner";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -179,7 +182,8 @@ export function PythonSetup({ onReady }: Props) {
       </div>
 
       {/* Card */}
-      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col gap-5 shadow-xl">
+      <Card className="w-full max-w-md rounded-2xl">
+        <CardContent className="p-6 flex flex-col gap-5">
 
         {/* Steps indicator */}
         <Steps currentStage={state.stage} />
@@ -187,7 +191,7 @@ export function PythonSetup({ onReady }: Props) {
         {/* Status message */}
         <div className="flex items-center gap-3 min-h-[2rem]">
           {isBusy && !isDone && (
-            <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin shrink-0" />
+            <Spinner size="sm" className="shrink-0" />
           )}
           {isDone && (
             <svg className="w-5 h-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -248,51 +252,62 @@ export function PythonSetup({ onReady }: Props) {
         {/* Action buttons */}
         <div className="flex flex-col gap-2">
           {showDownloadButton && (
-            <button
+            <Button
               onClick={handleDownload}
-              className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+              variant="primary"
+              size="lg"
+              className="w-full"
             >
               Download &amp; Set Up
-            </button>
+            </Button>
           )}
 
           {showInstallButton && (
-            <button
+            <Button
               onClick={() => handleInstall()}
-              className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
+              variant="primary"
+              size="lg"
+              className="w-full bg-emerald-600 hover:bg-emerald-500 border-emerald-500/30"
             >
               Set Up CADViewer
-            </button>
+            </Button>
           )}
 
           {showBundledInstallButton && (
-            <button
+            <Button
               onClick={handleBundledInstall}
-              className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+              variant="primary"
+              size="lg"
+              className="w-full"
             >
               Set Up CADViewer
-            </button>
+            </Button>
           )}
 
           {showRetry && (
-            <button
+            <Button
               onClick={checkPython}
-              className="w-full py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium transition-colors"
+              variant="secondary"
+              size="lg"
+              className="w-full bg-slate-700 hover:bg-slate-600 border-slate-600"
             >
               Try Again
-            </button>
+            </Button>
           )}
 
           {(state.stage === "needs_download" || state.stage === "needs_install" || state.stage === "error") && (
-            <button
+            <Button
               onClick={checkPython}
-              className="w-full py-2 rounded-lg border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-300 text-xs transition-colors"
+              variant="outline"
+              size="md"
+              className="w-full text-xs"
             >
               Already set up? Re-check
-            </button>
+            </Button>
           )}
         </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

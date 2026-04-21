@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AssemblyNode } from "../types/cad";
+import { Button } from "./ui/button";
 
 interface NodeProps {
   node: AssemblyNode;
@@ -27,9 +28,12 @@ function TreeNode({ node, depth, selected, onSelect }: NodeProps) {
 
   return (
     <div>
-      <button
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
         className={[
-          "w-full flex items-center gap-1.5 px-2 py-1 rounded text-left text-sm transition-colors",
+          "w-full justify-start gap-1.5 px-2 py-1 rounded text-left text-sm",
           "hover:bg-slate-700/60",
           isSelected ? "bg-blue-600/20 text-blue-300" : "text-slate-300",
         ].join(" ")}
@@ -66,7 +70,7 @@ function TreeNode({ node, depth, selected, onSelect }: NodeProps) {
         )}
 
         <span className="truncate">{node.name}</span>
-      </button>
+      </Button>
 
       {hasChildren && open && (
         <div>

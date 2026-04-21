@@ -1,4 +1,5 @@
 import type { ViewMode } from "../types/cad";
+import { Button } from "./ui/button";
 
 interface ToolbarProps {
   viewMode: ViewMode;
@@ -38,31 +39,35 @@ export function Toolbar({ viewMode, onViewMode, onReset, filename }: ToolbarProp
         {/* View mode pills */}
         <div className="flex rounded-lg overflow-hidden border border-slate-700">
           {VIEW_MODES.map(({ mode, label }) => (
-            <button
+            <Button
               key={mode}
+              type="button"
               onClick={() => onViewMode(mode)}
+              variant={viewMode === mode ? "primary" : "secondary"}
+              size="sm"
               className={[
-                "px-3 py-1 text-xs font-medium transition-colors",
-                viewMode === mode
-                  ? "bg-blue-600 text-white"
-                  : "bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700",
+                "rounded-none border-0",
+                viewMode === mode ? "hover:bg-blue-600" : "bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700 border-slate-700",
               ].join(" ")}
             >
               {label}
-            </button>
+            </Button>
           ))}
         </div>
 
         {/* Reset / open new file */}
-        <button
+        <Button
           onClick={onReset}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700 transition-colors"
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="flex items-center gap-1.5"
         >
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
           </svg>
           Open file
-        </button>
+        </Button>
       </div>
     </header>
   );

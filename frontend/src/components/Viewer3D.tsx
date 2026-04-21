@@ -12,6 +12,7 @@ import {
 } from "@react-three/drei";
 import * as THREE from "three";
 import type { ViewMode } from "../types/cad";
+import { Spinner } from "./ui/spinner";
 
 function debugLog(
   location: string,
@@ -124,7 +125,7 @@ function LoadingSpinner() {
   return (
     <Html center>
       <div className="flex flex-col items-center gap-2">
-        <div className="w-10 h-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+        <Spinner size="lg" />
         <span className="text-slate-300 text-sm">Loading model…</span>
       </div>
     </Html>

@@ -7,6 +7,9 @@ import { AssemblyTree } from "./components/AssemblyTree";
 import { AnnotationsPanel, MetadataPanel } from "./components/AnnotationsPanel";
 import { useCADFile } from "./hooks/useCADFile";
 import type { PanelTab, ViewMode } from "./types/cad";
+import { Button } from "./components/ui/button";
+import { Spinner } from "./components/ui/spinner";
+import { UiTabs, UiTabsList, UiTabsPanel, UiTabsTrigger } from "./components/ui/tabs";
 
 function debugLog(
   location: string,
@@ -42,7 +45,7 @@ function StatusOverlay({ message, isError }: { message: string; isError?: boolea
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/80 z-10 pointer-events-none">
       {!isError && (
-        <div className="w-10 h-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+        <Spinner size="lg" />
       )}
       {isError && (
         <svg className="w-10 h-10 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -140,7 +143,7 @@ export default function App() {
   if (!backendReady && !backendError) {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-slate-950 text-slate-100 gap-4">
-        <div className="w-10 h-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+        <Spinner size="lg" />
         <p className="text-sm text-slate-400">Starting up…</p>
       </div>
     );
@@ -155,12 +158,13 @@ export default function App() {
         </svg>
         <p className="text-sm font-medium text-red-400">Failed to start</p>
         <pre className="text-xs text-slate-400 bg-slate-900 rounded-lg p-4 max-w-lg w-full overflow-auto whitespace-pre-wrap">{backendError}</pre>
-        <button
+        <Button
           onClick={() => window.location.reload()}
-          className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition-colors"
+          variant="secondary"
+          size="lg"
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
@@ -197,12 +201,14 @@ export default function App() {
           {status === "error" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8">
               <StatusOverlay message={error ?? "Processing failed"} isError />
-              <button
+              <Button
                 onClick={reset}
-                className="mt-20 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition-colors pointer-events-auto"
+                className="mt-20 pointer-events-auto"
+                variant="secondary"
+                size="lg"
               >
                 Try another file
-              </button>
+              </Button>
             </div>
           )}
 
@@ -215,46 +221,30 @@ export default function App() {
         {/* ── Right panel (only when file is loaded) ── */}
         {hasFile && (
           <aside className="w-72 shrink-0 flex flex-col border-l border-slate-800 bg-slate-900">
-            <div className="flex flex-col h-full">
-              {/* Tab bar */}
-              <div className="flex border-b border-slate-800 shrink-0">
-                {(
-                  [
-                    { value: "assembly", label: "Assembly" },
-                    { value: "annotations", label: "Notes", count: cadFile.annotations.length },
-                    { value: "metadata", label: "Info" },
-                  ] as { value: PanelTab; label: string; count?: number }[]
-                ).map(({ value, label, count }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setTab(value)}
-                    className={`flex-1 flex items-center justify-center gap-0.5 px-2 py-2.5 text-xs font-medium transition-colors border-b-2 cursor-pointer ${
-                      tab === value
-                        ? "text-blue-400 border-blue-400 bg-slate-800/40"
-                        : "text-slate-400 hover:text-slate-200 border-transparent"
-                    }`}
-                    aria-pressed={tab === value}
-                  >
-                    {label}
-                    {count !== undefined && <Badge count={count} />}
-                  </button>
-                ))}
-              </div>
+            <UiTabs
+              value={tab}
+              onValueChange={(value) => setTab(value as PanelTab)}
+              className="flex flex-col h-full"
+            >
+              <UiTabsList>
+                <UiTabsTrigger value="assembly">Assembly</UiTabsTrigger>
+                <UiTabsTrigger value="annotations">
+                  Notes
+                  <Badge count={cadFile.annotations.length} />
+                </UiTabsTrigger>
+                <UiTabsTrigger value="metadata">Info</UiTabsTrigger>
+              </UiTabsList>
 
-              {/* Panels */}
-              <div className="flex-1 min-h-0">
-                {tab === "assembly" && (
-                  <AssemblyTree nodes={cadFile.assembly} />
-                )}
-                {tab === "annotations" && (
-                  <AnnotationsPanel annotations={cadFile.annotations} />
-                )}
-                {tab === "metadata" && (
-                  <MetadataPanel metadata={cadFile.metadata} />
-                )}
-              </div>
-            </div>
+              <UiTabsPanel value="assembly" className="flex-1 min-h-0">
+                <AssemblyTree nodes={cadFile.assembly} />
+              </UiTabsPanel>
+              <UiTabsPanel value="annotations" className="flex-1 min-h-0">
+                <AnnotationsPanel annotations={cadFile.annotations} />
+              </UiTabsPanel>
+              <UiTabsPanel value="metadata" className="flex-1 min-h-0">
+                <MetadataPanel metadata={cadFile.metadata} />
+              </UiTabsPanel>
+            </UiTabs>
           </aside>
         )}
       </div>
