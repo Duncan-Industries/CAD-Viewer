@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 const ACCEPT = [
   ".step", ".stp", ".iges", ".igs",
@@ -13,6 +13,7 @@ interface Props {
 
 export function FileUpload({ onFile, disabled }: Props) {
   const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
@@ -31,27 +32,56 @@ export function FileUpload({ onFile, disabled }: Props) {
     [disabled, handleFiles],
   );
 
+  const openPicker = useCallback(() => {
+    if (disabled) return;
+    // Explicit programmatic click — works reliably across Chromium/Firefox
+    // even when the hidden input is sr-only or behind other stacking contexts.
+    inputRef.current?.click();
+  }, [disabled]);
+
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (disabled) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openPicker();
+      }
+    },
+    [disabled, openPicker],
+  );
+
   return (
-    <label
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      onClick={openPicker}
+      onKeyDown={onKeyDown}
+      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={onDrop}
       className={[
         "flex flex-col items-center justify-center gap-3",
         "w-full h-full min-h-64 rounded-xl border-2 border-dashed",
         "cursor-pointer transition-colors select-none",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
         dragging
           ? "border-blue-400 bg-blue-400/10"
           : "border-slate-600 hover:border-blue-500 hover:bg-slate-800/50",
         disabled ? "opacity-50 pointer-events-none" : "",
       ].join(" ")}
-      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={onDrop}
     >
       <input
+        ref={inputRef}
         type="file"
         accept={ACCEPT}
         className="sr-only"
         disabled={disabled}
-        onChange={(e) => handleFiles(e.target.files)}
+        onChange={(e) => {
+          handleFiles(e.target.files);
+          // Reset so selecting the same file again still fires onChange
+          e.target.value = "";
+        }}
       />
 
       {/* Icon */}
@@ -71,6 +101,6 @@ export function FileUpload({ onFile, disabled }: Props) {
           STEP · IGES · STL · OBJ · GLTF · PLY · 3MF
         </p>
       </div>
-    </label>
+    </div>
   );
 }
