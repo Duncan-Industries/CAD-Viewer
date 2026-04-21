@@ -11,10 +11,11 @@
     "dev:electron": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && electron-vite dev\"",
     "build": "tsc -b && vite build",
     "build:electron": "npm run build && electron-vite build",
-    "dist": "npm run build:electron && electron-builder",
-    "dist:win": "npm run build:electron && electron-builder --win",
-    "dist:mac": "npm run build:electron && electron-builder --mac",
-    "dist:linux": "npm run build:electron && electron-builder --linux",
+    "check:backend-binary": "node scripts/check-backend-binary.mjs",
+    "dist": "npm run check:backend-binary && npm run build:electron && electron-builder",
+    "dist:win": "npm run check:backend-binary && npm run build:electron && electron-builder --win",
+    "dist:mac": "npm run check:backend-binary && npm run build:electron && electron-builder --mac",
+    "dist:linux": "npm run check:backend-binary && npm run build:electron && electron-builder --linux",
     "preview": "vite preview"
   },
   "dependencies": {

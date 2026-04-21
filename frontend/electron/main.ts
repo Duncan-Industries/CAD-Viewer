@@ -87,6 +87,14 @@ function getBackendBinary(): { cmd: string; args: string[]; cwd?: string } {
       "backend",
       `cadviewer-api${ext}`,
     );
+    if (!fs.existsSync(bin)) {
+      throw new Error(
+        `Bundled backend binary not found at:\n  ${bin}\n\n` +
+          `The installer was built without the PyInstaller binary. ` +
+          `Rebuild with 'npm run dist:win' (which runs 'check:backend-binary' first) ` +
+          `after producing backend/dist/cadviewer-api${ext}.`,
+      );
+    }
     return { cmd: bin, args: [] };
   }
 
@@ -386,6 +394,16 @@ ipcMain.handle("backend:start", async () => {
     process.stderr.write(`[backend] ${s}`);
   });
 
+  backend.on("error", (err) => {
+    backendStatus = "error";
+    console.error(`[backend] spawn error:`, err);
+    mainWindow?.webContents.send("setup:progress", {
+      stage: "backend",
+      percent: 0,
+      message: `Failed to launch backend binary:\n${String(err)}\n\ncmd: ${cmd}`,
+    });
+  });
+
   backend.on("exit", (code, signal) => {
     backendStatus = code === 0 ? "stopped" : "error";
     if (code !== 0 && !app.isQuitting) {
@@ -515,6 +533,16 @@ app.whenReady().then(async () => {
       const s = d.toString();
       backendLog.push(s);
       process.stderr.write(`[backend] ${s}`);
+    });
+
+    backend.on("error", (err) => {
+      backendStatus = "error";
+      console.error(`[backend] spawn error:`, err);
+      mainWindow?.webContents.send("setup:progress", {
+        stage: "backend",
+        percent: 0,
+        message: `Failed to launch backend binary:\n${String(err)}\n\ncmd: ${cmd}`,
+      });
     });
 
     backend.on("exit", (code, signal) => {

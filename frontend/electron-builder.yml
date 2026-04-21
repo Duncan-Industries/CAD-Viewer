@@ -12,7 +12,11 @@ files:
   - package.json
   - "!**/*.map"
 
-# The PyInstaller binary is placed outside ASAR in resources/backend/
+# The PyInstaller binary is placed outside ASAR in resources/backend/.
+# NOTE: a `scripts/check-backend-binary.*` script runs before packaging
+# (see package.json) and aborts the build if backend/dist/cadviewer-api(.exe)
+# is missing — otherwise electron-builder's filter silently matches nothing
+# and ships an empty resources/backend/ directory.
 extraResources:
   - from: ../backend/dist/
     to: backend
