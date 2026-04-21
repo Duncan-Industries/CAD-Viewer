@@ -480,7 +480,63 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
-// Open the window immediately — backend setup is driven by the renderer via IPC
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createWindow();
+  // Start backend immediately — no setup screen needed
+  try {
+    const { cmd, args, cwd } = getBackendBinary();
+    const backendLog: string[] = [];
+
+    backendStatus = "starting";
+
+    backend = spawn(cmd, args, {
+      cwd,
+      env: {
+        ...process.env,
+        PORT: String(BACKEND_PORT),
+        GLB_DIR: path.join(app.getPath("temp"), "cadviewer_glb"),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    backend.stdout?.on("data", (d: Buffer) => {
+      const s = d.toString();
+      backendLog.push(s);
+      process.stdout.write(`[backend] ${s}`);
+    });
+    backend.stderr?.on("data", (d: Buffer) => {
+      const s = d.toString();
+      backendLog.push(s);
+      process.stderr.write(`[backend] ${s}`);
+    });
+
+    backend.on("exit", (code, signal) => {
+      backendStatus = code === 0 ? "stopped" : "error";
+      if (code !== 0 && !app.isQuitting) {
+        const tail = backendLog.slice(-20).join("").trim();
+        console.error(`[backend] exited (code=${code} signal=${signal})\n${tail}`);
+        mainWindow?.webContents.send("setup:progress", {
+          stage: "backend",
+          percent: 0,
+          message: `Startup failed (exit ${code}):\n${tail.slice(0, 300)}`,
+        });
+      }
+    });
+
+    await waitForBackend(BACKEND_PORT);
+    backendStatus = "ready";
+    mainWindow?.webContents.send("setup:progress", {
+      stage: "backend",
+      percent: 100,
+      message: "ready",
+    });
+  } catch (err) {
+    backendStatus = "error";
+    console.error("[backend] failed to start:", err);
+    mainWindow?.webContents.send("setup:progress", {
+      stage: "backend",
+      percent: 0,
+      message: String(err),
+    });
+  }
 });
