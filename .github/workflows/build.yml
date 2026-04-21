@@ -92,3 +92,17 @@ jobs:
           files: |
             frontend/release/*.exe
             frontend/release/*.blockmap
+
+      - name: Publish rolling prerelease
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: latest
+          name: CADViewer (latest)
+          body: "Latest build from `${{ github.sha }}` · ${{ github.ref_name }}"
+          draft: false
+          prerelease: true
+          make_latest: false
+          files: |
+            frontend/release/*.exe
+            frontend/release/*.blockmap
