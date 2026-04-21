@@ -1,10 +1,14 @@
-import type { ViewMode } from "../types/cad";
+import type { PanelTab, ViewMode } from "../types/cad";
 import { Button } from "./ui/button";
 
 interface ToolbarProps {
   viewMode: ViewMode;
   onViewMode: (m: ViewMode) => void;
   onOpenFile: () => void;
+  activeTab: PanelTab;
+  onNavigate: (tab: PanelTab) => void;
+  onOpenSettings: () => void;
+  hasFile: boolean;
   filename: string | null;
 }
 
@@ -14,7 +18,16 @@ const VIEW_MODES: { mode: ViewMode; label: string }[] = [
   { mode: "transparent", label: "X-Ray" },
 ];
 
-export function Toolbar({ viewMode, onViewMode, onOpenFile, filename }: ToolbarProps) {
+export function Toolbar({
+  viewMode,
+  onViewMode,
+  onOpenFile,
+  activeTab,
+  onNavigate,
+  onOpenSettings,
+  hasFile,
+  filename,
+}: ToolbarProps) {
   return (
     <header className="flex items-center justify-between gap-4 px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0">
       {/* Left: logo + filename */}
@@ -36,6 +49,27 @@ export function Toolbar({ viewMode, onViewMode, onOpenFile, filename }: ToolbarP
 
       {/* Right: controls */}
       <div className="flex items-center gap-2 shrink-0">
+        {hasFile && (
+          <div className="flex rounded-lg overflow-hidden border border-slate-700">
+            {[
+              { tab: "assembly" as PanelTab, label: "Assembly" },
+              { tab: "annotations" as PanelTab, label: "Notes" },
+              { tab: "metadata" as PanelTab, label: "Info" },
+            ].map(({ tab, label }) => (
+              <Button
+                key={tab}
+                type="button"
+                onClick={() => onNavigate(tab)}
+                variant={activeTab === tab ? "primary" : "secondary"}
+                size="sm"
+                className="rounded-none border-0"
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+
         {/* View mode pills */}
         <div className="flex rounded-lg overflow-hidden border border-slate-700">
           {VIEW_MODES.map(({ mode, label }) => (
@@ -67,6 +101,15 @@ export function Toolbar({ viewMode, onViewMode, onOpenFile, filename }: ToolbarP
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
           </svg>
           Open file
+        </Button>
+
+        <Button
+          onClick={onOpenSettings}
+          type="button"
+          variant="outline"
+          size="sm"
+        >
+          Settings
         </Button>
       </div>
     </header>

@@ -48,6 +48,7 @@ export type PanelTab = "assembly" | "annotations" | "metadata";
 
 export interface CADViewerBridge {
   platform: string;
+  apiBaseUrl: string;
   checkPython: () => Promise<{ found: boolean; version?: string; cmd?: string; bundled?: boolean }>;
   downloadPython: () => Promise<string>;
   installPython: () => Promise<boolean>;

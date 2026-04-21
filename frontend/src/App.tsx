@@ -3,10 +3,12 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Toolbar } from "./components/Toolbar";
 import { FileUpload } from "./components/FileUpload";
 import { Viewer3D } from "./components/Viewer3D";
+import { SettingsModal } from "./components/SettingsModal";
 import { AssemblyTree } from "./components/AssemblyTree";
 import { AnnotationsPanel, MetadataPanel } from "./components/AnnotationsPanel";
 import { useCADFile } from "./hooks/useCADFile";
 import { CAD_FILE_ACCEPT, clearFileInput, openFileInputPicker, pickFirstFile } from "./services/filePicker";
+import { DEFAULT_SETTINGS, loadSettings, saveSettings, type AppSettings } from "./services/settings";
 import type { PanelTab, ViewMode } from "./types/cad";
 import { Button } from "./components/ui/button";
 import { Spinner } from "./components/ui/spinner";
@@ -56,6 +58,8 @@ export default function App() {
   const { status, cadFile, error, load, reset } = useCADFile();
   const [viewMode, setViewMode] = useState<ViewMode>("solid");
   const [tab, setTab] = useState<PanelTab>("assembly");
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // No Electron IPC (browser/web dev) → skip backend wait
@@ -80,6 +84,15 @@ export default function App() {
     return off;
   }, [hasIpc]);
 
+  useEffect(() => {
+    saveSettings(settings);
+  }, [settings]);
+
+  useEffect(() => {
+    if (!cadFile) return;
+    setTab(settings.defaultPanelTab);
+  }, [cadFile, settings.defaultPanelTab]);
+
   const isLoading = status === "uploading" || status === "processing";
   const hasFile = cadFile !== null;
 
@@ -92,9 +105,30 @@ export default function App() {
 
   const openFilePicker = () => {
     if (isLoading) return;
+    if (settings.confirmBeforeOpen && hasFile) {
+      const proceed = window.confirm("Open a new file and clear the current model?");
+      if (!proceed) return;
+    }
     reset();
     openFileInputPicker(inputRef.current);
   };
+
+  useEffect(() => {
+    if (!settings.keyboardShortcuts) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        openFilePicker();
+      } else if (e.ctrlKey && e.key === ",") {
+        e.preventDefault();
+        setSettingsOpen(true);
+      } else if (e.key === "Escape") {
+        setSettingsOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [settings.keyboardShortcuts, openFilePicker]);
 
   // Backend starting — show a minimal fullscreen loading screen
   if (!backendReady && !backendError) {
@@ -141,6 +175,10 @@ export default function App() {
         viewMode={viewMode}
         onViewMode={setViewMode}
         onOpenFile={openFilePicker}
+        activeTab={tab}
+        onNavigate={setTab}
+        onOpenSettings={() => setSettingsOpen(true)}
+        hasFile={hasFile}
         filename={cadFile?.metadata.filename ?? null}
       />
 
@@ -213,6 +251,25 @@ export default function App() {
           </aside>
         )}
       </div>
+
+      {settings.showStatusBar && (
+        <footer className="flex items-center justify-between border-t border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-slate-400">
+          <span>
+            {cadFile ? `Loaded: ${cadFile.metadata.filename}` : "No file loaded"}
+          </span>
+          <span>
+            Ctrl+O Open file · Ctrl+, Settings
+          </span>
+        </footer>
+      )}
+
+      <SettingsModal
+        open={settingsOpen}
+        settings={settings}
+        onChange={setSettings}
+        onClose={() => setSettingsOpen(false)}
+        onReset={() => setSettings(DEFAULT_SETTINGS)}
+      />
     </div>
   );
 }

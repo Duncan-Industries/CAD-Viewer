@@ -6,6 +6,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("cadviewer", {
   platform: process.platform,
+  apiBaseUrl: "http://127.0.0.1:48321/api",
 
   // Python / backend setup
   checkPython: () => ipcRenderer.invoke("python:check"),
