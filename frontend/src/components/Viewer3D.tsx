@@ -194,7 +194,7 @@ interface Viewer3DProps {
 
 export function Viewer3D({ modelUrl, viewMode, onPartClick }: Viewer3DProps) {
   return (
-    <div className="w-full h-full bg-slate-950">
+    <div className={`w-full h-full bg-slate-950${modelUrl ? "" : " pointer-events-none"}`}>
       <Canvas
         shadows
         camera={{ position: [5, 5, 5], fov: 50, near: 0.01, far: 5000 }}
