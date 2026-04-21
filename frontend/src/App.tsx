@@ -50,6 +50,92 @@ function Badge({ count }: { count: number }) {
   );
 }
 
+function LeftNavRail({
+  hasFile,
+  activeTab,
+  onOpenFile,
+  onNavigate,
+  onOpenSettings,
+}: {
+  hasFile: boolean;
+  activeTab: PanelTab;
+  onOpenFile: () => void;
+  onNavigate: (tab: PanelTab) => void;
+  onOpenSettings: () => void;
+}) {
+  const sectionButtonClass = (tab: PanelTab) =>
+    [
+      "h-9 w-9 rounded-lg border text-sm",
+      activeTab === tab
+        ? "bg-blue-600 text-white border-blue-500/40"
+        : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700",
+      !hasFile ? "opacity-40 pointer-events-none" : "",
+    ].join(" ");
+
+  return (
+    <aside className="w-14 shrink-0 border-r border-slate-800 bg-slate-900/80 flex flex-col items-center py-3 gap-2">
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        onClick={onOpenFile}
+        className="h-9 w-9 rounded-lg p-0"
+        title="Open file"
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+      </Button>
+
+      <div className="w-7 h-px bg-slate-800 my-1" />
+
+      <Button
+        type="button"
+        size="sm"
+        className={sectionButtonClass("assembly")}
+        onClick={() => onNavigate("assembly")}
+        title="Assembly"
+      >
+        A
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        className={sectionButtonClass("annotations")}
+        onClick={() => onNavigate("annotations")}
+        title="Notes"
+      >
+        N
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        className={sectionButtonClass("metadata")}
+        onClick={() => onNavigate("metadata")}
+        title="Info"
+      >
+        I
+      </Button>
+
+      <div className="mt-auto">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onOpenSettings}
+          className="h-9 w-9 rounded-lg p-0"
+          title="Settings"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317a1.724 1.724 0 013.35 0 1.724 1.724 0 002.573 1.066 1.724 1.724 0 012.365.999 1.724 1.724 0 001.608 2.38 1.724 1.724 0 010 3.348 1.724 1.724 0 00-1.608 2.38 1.724 1.724 0 01-2.365.999 1.724 1.724 0 00-2.573 1.066 1.724 1.724 0 01-3.35 0 1.724 1.724 0 00-2.573-1.066 1.724 1.724 0 01-2.365-.999 1.724 1.724 0 00-1.608-2.38 1.724 1.724 0 010-3.348 1.724 1.724 0 001.608-2.38 1.724 1.724 0 012.365-.999 1.724 1.724 0 002.573-1.066z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 12a2.25 2.25 0 104.5 0 2.25 2.25 0 00-4.5 0z" />
+          </svg>
+        </Button>
+      </div>
+    </aside>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
@@ -184,6 +270,13 @@ export default function App() {
 
       {/* ── Main area ── */}
       <div className="flex flex-1 min-h-0">
+        <LeftNavRail
+          hasFile={hasFile}
+          activeTab={tab}
+          onOpenFile={openFilePicker}
+          onNavigate={setTab}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
 
         {/* ── 3D Viewport ── */}
         <main className="relative flex-1 min-w-0">
