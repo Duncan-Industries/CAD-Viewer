@@ -8,6 +8,32 @@ import { AnnotationsPanel, MetadataPanel } from "./components/AnnotationsPanel";
 import { useCADFile } from "./hooks/useCADFile";
 import type { PanelTab, ViewMode } from "./types/cad";
 
+function debugLog(
+  location: string,
+  message: string,
+  hypothesisId: string,
+  data: Record<string, unknown>,
+) {
+  // #region agent log
+  fetch("http://127.0.0.1:7244/ingest/019b87a8-dab2-4a8b-85ca-71ef66cd7018", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "f20fb4",
+    },
+    body: JSON.stringify({
+      sessionId: "f20fb4",
+      runId: "initial",
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+}
+
 // ---------------------------------------------------------------------------
 // Status overlay shown while processing
 // ---------------------------------------------------------------------------
@@ -52,6 +78,38 @@ export default function App() {
   const { status, cadFile, error, load, reset } = useCADFile();
   const [viewMode, setViewMode] = useState<ViewMode>("solid");
   const [tab, setTab] = useState<PanelTab>("assembly");
+
+  useEffect(() => {
+    const onWindowDrop = (e: DragEvent) => {
+      debugLog("App.tsx:windowDrop", "window drop event", "H6", {
+        defaultPrevented: e.defaultPrevented,
+        fileCount: e.dataTransfer?.files?.length ?? 0,
+      });
+    };
+    const onWindowDragOver = (e: DragEvent) => {
+      debugLog("App.tsx:windowDragOver", "window dragover event", "H6", {
+        defaultPrevented: e.defaultPrevented,
+      });
+    };
+    const onWindowClickCapture = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      debugLog("App.tsx:windowClickCapture", "window click (capture)", "H7", {
+        defaultPrevented: e.defaultPrevented,
+        targetTag: t?.tagName ?? null,
+        targetId: t?.id ?? null,
+        targetClass: t?.className ?? null,
+      });
+    };
+
+    window.addEventListener("drop", onWindowDrop);
+    window.addEventListener("dragover", onWindowDragOver);
+    window.addEventListener("click", onWindowClickCapture, true);
+    return () => {
+      window.removeEventListener("drop", onWindowDrop);
+      window.removeEventListener("dragover", onWindowDragOver);
+      window.removeEventListener("click", onWindowClickCapture, true);
+    };
+  }, []);
 
   // No Electron IPC (browser/web dev) → skip backend wait
   const hasIpc = !!window.cadviewer?.onSetupProgress;

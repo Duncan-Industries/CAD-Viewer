@@ -67,6 +67,32 @@ let backend: ChildProcess | null = null;
 let backendStatus: BackendStatus = "stopped";
 let mainWindow: BrowserWindow | null = null;
 
+function debugLog(
+  location: string,
+  message: string,
+  hypothesisId: string,
+  data: Record<string, unknown>,
+): void {
+  // #region agent log
+  fetch("http://127.0.0.1:7244/ingest/019b87a8-dab2-4a8b-85ca-71ef66cd7018", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "f20fb4",
+    },
+    body: JSON.stringify({
+      sessionId: "f20fb4",
+      runId: "initial",
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -164,6 +190,29 @@ function waitForBackend(port: number, timeoutMs = 90_000): Promise<void> {
     };
     attempt();
   });
+}
+
+async function hasHealthyBackend(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+    const json = (await res.json().catch(() => null)) as { status?: string } | null;
+    const healthy = res.ok && json?.status === "ok";
+    debugLog(
+      "electron/main.ts:hasHealthyBackend",
+      "health probe completed",
+      "H1",
+      { port, httpOk: res.ok, status: json?.status ?? null, healthy },
+    );
+    return healthy;
+  } catch (err) {
+    debugLog(
+      "electron/main.ts:hasHealthyBackend",
+      "health probe failed",
+      "H2",
+      { port, error: String(err) },
+    );
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -370,6 +419,18 @@ ipcMain.handle("backend:start", async () => {
   sendProgress("backend", 0, "Starting backend…");
 
   const { cmd, args, cwd } = getBackendBinary();
+  debugLog(
+    "electron/main.ts:backend:start",
+    "backend start requested",
+    "H3",
+    { status: backendStatus, port: BACKEND_PORT, cmd },
+  );
+
+  if (await hasHealthyBackend(BACKEND_PORT)) {
+    backendStatus = "ready";
+    sendProgress("backend", 100, "Backend ready.");
+    return { ok: true, reused: true };
+  }
 
   const backendLog: string[] = [];
 
@@ -406,6 +467,12 @@ ipcMain.handle("backend:start", async () => {
 
   backend.on("exit", (code, signal) => {
     backendStatus = code === 0 ? "stopped" : "error";
+    debugLog(
+      "electron/main.ts:backendExit",
+      "backend process exited",
+      "H4",
+      { code: code ?? null, signal: signal ?? null, status: backendStatus },
+    );
     if (code !== 0 && !app.isQuitting) {
       const tail = backendLog.slice(-20).join("").trim();
       console.error(`[backend] exited (code=${code} signal=${signal})\n${tail}`);
@@ -509,6 +576,16 @@ app.whenReady().then(async () => {
   createWindow();
   // Start backend immediately — no setup screen needed
   try {
+    if (await hasHealthyBackend(BACKEND_PORT)) {
+      backendStatus = "ready";
+      mainWindow?.webContents.send("setup:progress", {
+        stage: "backend",
+        percent: 100,
+        message: "ready",
+      });
+      return;
+    }
+
     const { cmd, args, cwd } = getBackendBinary();
     const backendLog: string[] = [];
 
