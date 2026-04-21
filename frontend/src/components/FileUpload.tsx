@@ -11,28 +11,72 @@ interface Props {
   disabled?: boolean;
 }
 
+function debugLog(
+  location: string,
+  message: string,
+  hypothesisId: string,
+  data: Record<string, unknown>,
+) {
+  // #region agent log
+  fetch("http://127.0.0.1:7244/ingest/019b87a8-dab2-4a8b-85ca-71ef66cd7018", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "f20fb4",
+    },
+    body: JSON.stringify({
+      sessionId: "f20fb4",
+      runId: "initial",
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+}
+
 export function FileUpload({ onFile, disabled }: Props) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
+      debugLog(
+        "FileUpload.tsx:handleFiles",
+        "handleFiles invoked",
+        "H3",
+        { disabled: !!disabled, fileCount: files?.length ?? 0 },
+      );
       if (!files || files.length === 0) return;
       onFile(files[0]!);
     },
-    [onFile],
+    [disabled, onFile],
   );
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
+      debugLog(
+        "FileUpload.tsx:onDrop",
+        "drop event received on upload zone",
+        "H2",
+        { disabled: !!disabled, fileCount: e.dataTransfer.files?.length ?? 0 },
+      );
       if (!disabled) handleFiles(e.dataTransfer.files);
     },
     [disabled, handleFiles],
   );
 
   const openPicker = useCallback(() => {
+    debugLog(
+      "FileUpload.tsx:openPicker",
+      "upload zone click handler invoked",
+      "H1",
+      { disabled: !!disabled, hasInputRef: !!inputRef.current },
+    );
     if (disabled) return;
     // Explicit programmatic click — works reliably across Chromium/Firefox
     // even when the hidden input is sr-only or behind other stacking contexts.
@@ -57,7 +101,16 @@ export function FileUpload({ onFile, disabled }: Props) {
       aria-disabled={disabled}
       onClick={openPicker}
       onKeyDown={onKeyDown}
-      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragging(true);
+        debugLog(
+          "FileUpload.tsx:onDragOver",
+          "dragover event received on upload zone",
+          "H2",
+          { disabled: !!disabled },
+        );
+      }}
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
       className={[
@@ -78,6 +131,12 @@ export function FileUpload({ onFile, disabled }: Props) {
         className="sr-only"
         disabled={disabled}
         onChange={(e) => {
+          debugLog(
+            "FileUpload.tsx:inputOnChange",
+            "file input onChange fired",
+            "H3",
+            { fileCount: e.target.files?.length ?? 0 },
+          );
           handleFiles(e.target.files);
           // Reset so selecting the same file again still fires onChange
           e.target.value = "";
