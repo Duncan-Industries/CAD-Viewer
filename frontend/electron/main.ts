@@ -90,15 +90,18 @@ function getBackendBinary(): { cmd: string; args: string[]; cwd?: string } {
     return { cmd: bin, args: [] };
   }
 
-  // Dev: prefer a locally-built PyInstaller binary if it exists
+  // Dev: __dirname = frontend/out/main/ → ../../../ = repo root
   const ext = process.platform === "win32" ? ".exe" : "";
-  const devBin = path.resolve(__dirname, `../../backend/dist/cadviewer-api${ext}`);
+  const repoRoot = path.resolve(__dirname, "../../..");
+  const devBin = path.join(repoRoot, "backend", "dist", `cadviewer-api${ext}`);
+  console.log(`[backend] devBin path: ${devBin} (exists: ${fs.existsSync(devBin)})`);
   if (fs.existsSync(devBin)) {
     return { cmd: devBin, args: [] };
   }
 
   // Fallback: run via uvicorn using the app-local venv (or system python)
-  const backendDir = path.resolve(__dirname, "../../backend");
+  const backendDir = path.join(repoRoot, "backend");
+  console.log(`[backend] uvicorn cwd: ${backendDir} (exists: ${fs.existsSync(backendDir)})`);
   const python = appPythonExists() ? getAppPython() : (process.platform === "win32" ? "python" : "python3");
   return getBackendBinaryWithPython(python, backendDir);
 }
@@ -110,7 +113,7 @@ function getBackendBinaryWithPython(
   const backendDir = cwd ??
     (app.isPackaged
       ? path.join(process.resourcesPath, "backend")
-      : path.join(__dirname, "../../backend"));
+      : path.join(path.resolve(__dirname, "../../.."), "backend"));
   return {
     cmd: pythonExe,
     args: [
@@ -167,7 +170,7 @@ ipcMain.handle("python:check", async () => {
 
   // Dev: also skip setup if a local PyInstaller binary exists
   const ext = process.platform === "win32" ? ".exe" : "";
-  const devBin = path.resolve(__dirname, `../../backend/dist/cadviewer-api${ext}`);
+  const devBin = path.join(path.resolve(__dirname, "../../.."), "backend", "dist", `cadviewer-api${ext}`);
   if (fs.existsSync(devBin)) {
     return { found: true, version: "bundled", embedded: true, bundled: true };
   }
