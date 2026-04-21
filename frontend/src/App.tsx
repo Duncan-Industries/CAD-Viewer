@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { Toolbar } from "./components/Toolbar";
 import { FileUpload } from "./components/FileUpload";
@@ -6,36 +6,11 @@ import { Viewer3D } from "./components/Viewer3D";
 import { AssemblyTree } from "./components/AssemblyTree";
 import { AnnotationsPanel, MetadataPanel } from "./components/AnnotationsPanel";
 import { useCADFile } from "./hooks/useCADFile";
+import { CAD_FILE_ACCEPT, clearFileInput, openFileInputPicker, pickFirstFile } from "./services/filePicker";
 import type { PanelTab, ViewMode } from "./types/cad";
 import { Button } from "./components/ui/button";
 import { Spinner } from "./components/ui/spinner";
 import { UiTabs, UiTabsList, UiTabsPanel, UiTabsTrigger } from "./components/ui/tabs";
-
-function debugLog(
-  location: string,
-  message: string,
-  hypothesisId: string,
-  data: Record<string, unknown>,
-) {
-  // #region agent log
-  fetch("http://127.0.0.1:7244/ingest/019b87a8-dab2-4a8b-85ca-71ef66cd7018", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "f20fb4",
-    },
-    body: JSON.stringify({
-      sessionId: "f20fb4",
-      runId: "initial",
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-}
 
 // ---------------------------------------------------------------------------
 // Status overlay shown while processing
@@ -81,38 +56,7 @@ export default function App() {
   const { status, cadFile, error, load, reset } = useCADFile();
   const [viewMode, setViewMode] = useState<ViewMode>("solid");
   const [tab, setTab] = useState<PanelTab>("assembly");
-
-  useEffect(() => {
-    const onWindowDrop = (e: DragEvent) => {
-      debugLog("App.tsx:windowDrop", "window drop event", "H6", {
-        defaultPrevented: e.defaultPrevented,
-        fileCount: e.dataTransfer?.files?.length ?? 0,
-      });
-    };
-    const onWindowDragOver = (e: DragEvent) => {
-      debugLog("App.tsx:windowDragOver", "window dragover event", "H6", {
-        defaultPrevented: e.defaultPrevented,
-      });
-    };
-    const onWindowClickCapture = (e: MouseEvent) => {
-      const t = e.target as HTMLElement | null;
-      debugLog("App.tsx:windowClickCapture", "window click (capture)", "H7", {
-        defaultPrevented: e.defaultPrevented,
-        targetTag: t?.tagName ?? null,
-        targetId: t?.id ?? null,
-        targetClass: t?.className ?? null,
-      });
-    };
-
-    window.addEventListener("drop", onWindowDrop);
-    window.addEventListener("dragover", onWindowDragOver);
-    window.addEventListener("click", onWindowClickCapture, true);
-    return () => {
-      window.removeEventListener("drop", onWindowDrop);
-      window.removeEventListener("dragover", onWindowDragOver);
-      window.removeEventListener("click", onWindowClickCapture, true);
-    };
-  }, []);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   // No Electron IPC (browser/web dev) → skip backend wait
   const hasIpc = !!window.cadviewer?.onSetupProgress;
@@ -138,6 +82,19 @@ export default function App() {
 
   const isLoading = status === "uploading" || status === "processing";
   const hasFile = cadFile !== null;
+
+  const handlePickerChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = pickFirstFile(e.target.files);
+    if (!file || isLoading) return;
+    load(file);
+    clearFileInput(e.target);
+  };
+
+  const openFilePicker = () => {
+    if (isLoading) return;
+    reset();
+    openFileInputPicker(inputRef.current);
+  };
 
   // Backend starting — show a minimal fullscreen loading screen
   if (!backendReady && !backendError) {
@@ -171,11 +128,19 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-full bg-slate-950 text-slate-100">
+      <input
+        ref={inputRef}
+        type="file"
+        accept={CAD_FILE_ACCEPT}
+        className="sr-only"
+        onChange={handlePickerChange}
+      />
+
       {/* ── Top bar ── */}
       <Toolbar
         viewMode={viewMode}
         onViewMode={setViewMode}
-        onReset={reset}
+        onOpenFile={openFilePicker}
         filename={cadFile?.metadata.filename ?? null}
       />
 

@@ -1,40 +1,14 @@
 import { useCallback, useRef, useState } from "react";
-
-const ACCEPT = [
-  ".step", ".stp", ".iges", ".igs",
-  ".stl", ".obj", ".glb", ".gltf",
-  ".ply", ".off", ".3mf",
-].join(",");
+import {
+  CAD_FILE_ACCEPT,
+  clearFileInput,
+  openFileInputPicker,
+  pickFirstFile,
+} from "../services/filePicker";
 
 interface Props {
   onFile: (file: File) => void;
   disabled?: boolean;
-}
-
-function debugLog(
-  location: string,
-  message: string,
-  hypothesisId: string,
-  data: Record<string, unknown>,
-) {
-  // #region agent log
-  fetch("http://127.0.0.1:7244/ingest/019b87a8-dab2-4a8b-85ca-71ef66cd7018", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "f20fb4",
-    },
-    body: JSON.stringify({
-      sessionId: "f20fb4",
-      runId: "initial",
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 }
 
 export function FileUpload({ onFile, disabled }: Props) {
@@ -43,44 +17,25 @@ export function FileUpload({ onFile, disabled }: Props) {
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
-      debugLog(
-        "FileUpload.tsx:handleFiles",
-        "handleFiles invoked",
-        "H3",
-        { disabled: !!disabled, fileCount: files?.length ?? 0 },
-      );
-      if (!files || files.length === 0) return;
-      onFile(files[0]!);
+      const file = pickFirstFile(files);
+      if (!file) return;
+      onFile(file);
     },
-    [disabled, onFile],
+    [onFile],
   );
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
-      debugLog(
-        "FileUpload.tsx:onDrop",
-        "drop event received on upload zone",
-        "H2",
-        { disabled: !!disabled, fileCount: e.dataTransfer.files?.length ?? 0 },
-      );
       if (!disabled) handleFiles(e.dataTransfer.files);
     },
     [disabled, handleFiles],
   );
 
   const openPicker = useCallback(() => {
-    debugLog(
-      "FileUpload.tsx:openPicker",
-      "upload zone click handler invoked",
-      "H1",
-      { disabled: !!disabled, hasInputRef: !!inputRef.current },
-    );
     if (disabled) return;
-    // Explicit programmatic click — works reliably across Chromium/Firefox
-    // even when the hidden input is sr-only or behind other stacking contexts.
-    inputRef.current?.click();
+    openFileInputPicker(inputRef.current);
   }, [disabled]);
 
   const onKeyDown = useCallback(
@@ -104,12 +59,6 @@ export function FileUpload({ onFile, disabled }: Props) {
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);
-        debugLog(
-          "FileUpload.tsx:onDragOver",
-          "dragover event received on upload zone",
-          "H2",
-          { disabled: !!disabled },
-        );
       }}
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
@@ -127,19 +76,12 @@ export function FileUpload({ onFile, disabled }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept={ACCEPT}
+        accept={CAD_FILE_ACCEPT}
         className="sr-only"
         disabled={disabled}
         onChange={(e) => {
-          debugLog(
-            "FileUpload.tsx:inputOnChange",
-            "file input onChange fired",
-            "H3",
-            { fileCount: e.target.files?.length ?? 0 },
-          );
           handleFiles(e.target.files);
-          // Reset so selecting the same file again still fires onChange
-          e.target.value = "";
+          clearFileInput(e.target);
         }}
       />
 

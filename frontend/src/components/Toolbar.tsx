@@ -4,7 +4,7 @@ import { Button } from "./ui/button";
 interface ToolbarProps {
   viewMode: ViewMode;
   onViewMode: (m: ViewMode) => void;
-  onReset: () => void;
+  onOpenFile: () => void;
   filename: string | null;
 }
 
@@ -14,7 +14,7 @@ const VIEW_MODES: { mode: ViewMode; label: string }[] = [
   { mode: "transparent", label: "X-Ray" },
 ];
 
-export function Toolbar({ viewMode, onViewMode, onReset, filename }: ToolbarProps) {
+export function Toolbar({ viewMode, onViewMode, onOpenFile, filename }: ToolbarProps) {
   return (
     <header className="flex items-center justify-between gap-4 px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0">
       {/* Left: logo + filename */}
@@ -55,9 +55,9 @@ export function Toolbar({ viewMode, onViewMode, onReset, filename }: ToolbarProp
           ))}
         </div>
 
-        {/* Reset / open new file */}
+        {/* Open file */}
         <Button
-          onClick={onReset}
+          onClick={onOpenFile}
           type="button"
           variant="secondary"
           size="sm"

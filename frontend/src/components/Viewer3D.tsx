@@ -14,32 +14,6 @@ import * as THREE from "three";
 import type { ViewMode } from "../types/cad";
 import { Spinner } from "./ui/spinner";
 
-function debugLog(
-  location: string,
-  message: string,
-  hypothesisId: string,
-  data: Record<string, unknown>,
-) {
-  // #region agent log
-  fetch("http://127.0.0.1:7244/ingest/019b87a8-dab2-4a8b-85ca-71ef66cd7018", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "f20fb4",
-    },
-    body: JSON.stringify({
-      sessionId: "f20fb4",
-      runId: "initial",
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-}
-
 // ---------------------------------------------------------------------------
 // Model
 // ---------------------------------------------------------------------------
@@ -220,27 +194,8 @@ interface Viewer3DProps {
 }
 
 export function Viewer3D({ modelUrl, viewMode, onPartClick }: Viewer3DProps) {
-  const pointerEventsDisabled = !modelUrl;
   return (
-    <div
-      className={`w-full h-full bg-slate-950${modelUrl ? "" : " pointer-events-none"}`}
-      onPointerDown={() => {
-        debugLog(
-          "Viewer3D.tsx:onPointerDown",
-          "viewer container received pointer down",
-          "H4",
-          { modelLoaded: !!modelUrl, pointerEventsDisabled },
-        );
-      }}
-      onDrop={(e) => {
-        debugLog(
-          "Viewer3D.tsx:onDrop",
-          "viewer container received drop",
-          "H4",
-          { modelLoaded: !!modelUrl, pointerEventsDisabled, fileCount: e.dataTransfer.files?.length ?? 0 },
-        );
-      }}
-    >
+    <div className={`w-full h-full bg-slate-950${modelUrl ? "" : " pointer-events-none"}`}>
       <Canvas
         shadows
         camera={{ position: [5, 5, 5], fov: 50, near: 0.01, far: 5000 }}
