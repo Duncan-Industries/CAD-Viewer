@@ -90,8 +90,16 @@ function getBackendBinary(): { cmd: string; args: string[]; cwd?: string } {
     return { cmd: bin, args: [] };
   }
 
-  const backendDir = path.join(__dirname, "../../backend");
-  const python = process.platform === "win32" ? "python" : "python3";
+  // Dev: prefer a locally-built PyInstaller binary if it exists
+  const ext = process.platform === "win32" ? ".exe" : "";
+  const devBin = path.resolve(__dirname, `../../backend/dist/cadviewer-api${ext}`);
+  if (fs.existsSync(devBin)) {
+    return { cmd: devBin, args: [] };
+  }
+
+  // Fallback: run via uvicorn using the app-local venv (or system python)
+  const backendDir = path.resolve(__dirname, "../../backend");
+  const python = appPythonExists() ? getAppPython() : (process.platform === "win32" ? "python" : "python3");
   return getBackendBinaryWithPython(python, backendDir);
 }
 
@@ -148,6 +156,22 @@ function waitForBackend(port: number, timeoutMs = 90_000): Promise<void> {
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("python:check", async () => {
+  // In packaged builds the PyInstaller binary is self-contained — no setup needed
+  if (app.isPackaged) {
+    const ext = process.platform === "win32" ? ".exe" : "";
+    const bin = path.join(process.resourcesPath, "backend", `cadviewer-api${ext}`);
+    if (fs.existsSync(bin)) {
+      return { found: true, version: "bundled", embedded: true, bundled: true };
+    }
+  }
+
+  // Dev: also skip setup if a local PyInstaller binary exists
+  const ext = process.platform === "win32" ? ".exe" : "";
+  const devBin = path.resolve(__dirname, `../../backend/dist/cadviewer-api${ext}`);
+  if (fs.existsSync(devBin)) {
+    return { found: true, version: "bundled", embedded: true, bundled: true };
+  }
+
   // uv is always bundled — treat it like "bundled" so UI skips the download step
   const uvExe = getUvExe();
   const uvAvailable = fs.existsSync(uvExe);
@@ -330,10 +354,7 @@ ipcMain.handle("backend:start", async () => {
   backendStatus = "starting";
   sendProgress("backend", 0, "Starting backend…");
 
-  // Use app-local Python if available, otherwise fall back to getBackendBinary()
-  const { cmd, args, cwd } = appPythonExists()
-    ? getBackendBinaryWithPython(getAppPython())
-    : getBackendBinary();
+  const { cmd, args, cwd } = getBackendBinary();
 
   const backendLog: string[] = [];
 
