@@ -1,7 +1,6 @@
 services:
   backend:
     image: ghcr.io/duncan-industries/cadviewer-backend:latest
-    build: ./backend
     ports:
       - "8000:8000"
     volumes:
@@ -18,7 +17,6 @@ services:
 
   frontend:
     image: ghcr.io/duncan-industries/cadviewer-frontend:latest
-    build: ./frontend
     ports:
       - "3000:80"
     depends_on:
