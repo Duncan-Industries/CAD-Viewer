@@ -8,6 +8,7 @@ main process) and starts uvicorn programmatically.
 
 import os
 import sys
+from importlib import import_module
 
 # PyInstaller sets _MEIPASS when running from a bundle.
 # We need to add the bundle directory to sys.path so FastAPI can find our app.
@@ -17,9 +18,10 @@ if hasattr(sys, "_MEIPASS"):
 
 def self_test() -> None:
     """Validate imports that are commonly missed by PyInstaller."""
-    import cadquery
-    import OCP  # noqa: F401
-    import services.cad_processor as processor
+    cadquery = import_module("cadquery")
+    import_module("casadi")
+    import_module("OCP")
+    processor = import_module("services.cad_processor")
 
     if not processor._has_cadquery():
         raise RuntimeError("cadquery import check failed")

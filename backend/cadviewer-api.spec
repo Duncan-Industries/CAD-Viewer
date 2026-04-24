@@ -3,7 +3,12 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+)
 
 block_cipher = None
 
@@ -33,9 +38,11 @@ hidden_imports = [
     "email.mime.multipart",
     # Pydantic
     "pydantic.deprecated.class_validators",
-    # cadquery / OCP  (these are large; collect everything)
+    # cadquery / OCP / casadi  (these are large; collect everything)
     "cadquery",
     "OCP",
+    "casadi",
+    "casadi._casadi",
     # trimesh
     "trimesh",
     "trimesh.exchange.gltf",
@@ -47,13 +54,18 @@ hidden_imports = [
 datas = []
 binaries = []
 
-for package_name in ("cadquery", "OCP", "trimesh", "pygltflib"):
+for package_name in ("cadquery", "OCP", "casadi", "trimesh", "pygltflib"):
     package_datas, package_binaries, package_hidden_imports = collect_all(package_name)
     datas += package_datas
     binaries += package_binaries
     for hidden_import in package_hidden_imports + collect_submodules(package_name):
         if hidden_import not in hidden_imports:
             hidden_imports.append(hidden_import)
+
+# CasADi ships a SWIG extension plus adjacent DLLs that PyInstaller can miss
+# unless they are explicitly treated as package data/binaries.
+datas += collect_data_files("casadi", includes=["*.dll", "*.pyd"])
+binaries += collect_dynamic_libs("casadi")
 
 a = Analysis(
     ["run.py"],
