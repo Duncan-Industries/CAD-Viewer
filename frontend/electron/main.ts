@@ -19,6 +19,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Port the Python backend listens on.
 const BACKEND_PORT = 48_321;
 
+function logBackend(message: string, data?: Record<string, unknown>): void {
+  const details = data ? ` ${JSON.stringify(data)}` : "";
+  console.log(`[backend] ${message}${details}`);
+}
+
 // ---------------------------------------------------------------------------
 // uv paths — uv is bundled in resources/uv/
 // ---------------------------------------------------------------------------
@@ -121,6 +126,7 @@ function getBackendBinary(): { cmd: string; args: string[]; cwd?: string } {
           `after producing backend/dist/cadviewer-api${ext}.`,
       );
     }
+    logBackend("using bundled backend binary", { cmd: bin });
     return { cmd: bin, args: [] };
   }
 
@@ -131,6 +137,7 @@ function getBackendBinary(): { cmd: string; args: string[]; cwd?: string } {
   console.log(`[backend] appPath: ${app.getAppPath()}`);
   console.log(`[backend] devBin: ${devBin} (exists: ${fs.existsSync(devBin)})`);
   if (fs.existsSync(devBin)) {
+    logBackend("using local PyInstaller backend binary", { cmd: devBin });
     return { cmd: devBin, args: [] };
   }
 
@@ -141,6 +148,7 @@ function getBackendBinary(): { cmd: string; args: string[]; cwd?: string } {
     throw new Error(`Cannot find backend/main.py. Resolved backendDir: ${backendDir}`);
   }
   const python = appPythonExists() ? getAppPython() : (process.platform === "win32" ? "python" : "python3");
+  logBackend("using Python uvicorn backend fallback", { python, cwd: backendDir });
   return getBackendBinaryWithPython(python, backendDir);
 }
 
@@ -417,6 +425,7 @@ ipcMain.handle("backend:start", async () => {
 
   backendStatus = "starting";
   sendProgress("backend", 0, "Starting backend…");
+  logBackend("start requested from renderer", { port: BACKEND_PORT });
 
   const { cmd, args, cwd } = getBackendBinary();
   debugLog(
@@ -428,6 +437,7 @@ ipcMain.handle("backend:start", async () => {
 
   if (await hasHealthyBackend(BACKEND_PORT)) {
     backendStatus = "ready";
+    logBackend("already running; reusing healthy backend", { port: BACKEND_PORT });
     sendProgress("backend", 100, "Backend ready.");
     return { ok: true, reused: true };
   }
@@ -443,6 +453,7 @@ ipcMain.handle("backend:start", async () => {
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  logBackend("spawned backend process", { pid: backend.pid, cmd, cwd: cwd ?? process.cwd() });
 
   backend.stdout?.on("data", (d: Buffer) => {
     const s = d.toString();
@@ -576,8 +587,10 @@ app.whenReady().then(async () => {
   createWindow();
   // Start backend immediately — no setup screen needed
   try {
+    logBackend("startup check", { packaged: app.isPackaged, port: BACKEND_PORT });
     if (await hasHealthyBackend(BACKEND_PORT)) {
       backendStatus = "ready";
+      logBackend("already running during app startup", { port: BACKEND_PORT });
       mainWindow?.webContents.send("setup:progress", {
         stage: "backend",
         percent: 100,
@@ -590,6 +603,7 @@ app.whenReady().then(async () => {
     const backendLog: string[] = [];
 
     backendStatus = "starting";
+    logBackend("starting backend during app startup", { cmd, cwd: cwd ?? process.cwd() });
 
     backend = spawn(cmd, args, {
       cwd,
@@ -600,6 +614,7 @@ app.whenReady().then(async () => {
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    logBackend("spawned backend process", { pid: backend.pid, cmd, cwd: cwd ?? process.cwd() });
 
     backend.stdout?.on("data", (d: Buffer) => {
       const s = d.toString();
@@ -637,6 +652,7 @@ app.whenReady().then(async () => {
 
     await waitForBackend(BACKEND_PORT);
     backendStatus = "ready";
+    logBackend("backend ready", { port: BACKEND_PORT });
     mainWindow?.webContents.send("setup:progress", {
       stage: "backend",
       percent: 100,

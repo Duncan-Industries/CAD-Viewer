@@ -15,7 +15,23 @@ if hasattr(sys, "_MEIPASS"):
     sys.path.insert(0, sys._MEIPASS)  # type: ignore[attr-defined]
 
 
+def self_test() -> None:
+    """Validate imports that are commonly missed by PyInstaller."""
+    import cadquery
+    import OCP  # noqa: F401
+    import services.cad_processor as processor
+
+    if not processor._has_cadquery():
+        raise RuntimeError("cadquery import check failed")
+
+    print(f"cadviewer-api self-test passed (cadquery {cadquery.__version__})")
+
+
 def main() -> None:
+    if "--self-test" in sys.argv:
+        self_test()
+        return
+
     port = int(os.environ.get("PORT", "48321"))
     glb_dir = os.environ.get(
         "GLB_DIR",

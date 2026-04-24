@@ -58,6 +58,11 @@ jobs:
           }
           Write-Host "cadviewer-api.exe found: $((Get-Item backend/dist/cadviewer-api.exe).Length) bytes"
 
+      - name: Smoke test bundled backend imports
+        shell: pwsh
+        run: |
+          & "backend/dist/cadviewer-api.exe" --self-test
+
       - name: Build Electron (compile only)
         shell: pwsh
         working-directory: frontend

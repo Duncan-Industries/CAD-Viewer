@@ -1,8 +1,9 @@
 # PyInstaller spec file for the CADViewer backend.
 # Run with:  pyinstaller cadviewer-api.spec
 
-import sys
 from pathlib import Path
+
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 block_cipher = None
 
@@ -32,9 +33,9 @@ hidden_imports = [
     "email.mime.multipart",
     # Pydantic
     "pydantic.deprecated.class_validators",
-    # cadquery / OCC  (these are large; collect everything)
+    # cadquery / OCP  (these are large; collect everything)
     "cadquery",
-    "OCC",
+    "OCP",
     # trimesh
     "trimesh",
     "trimesh.exchange.gltf",
@@ -43,11 +44,22 @@ hidden_imports = [
     "pygltflib",
 ]
 
+datas = []
+binaries = []
+
+for package_name in ("cadquery", "OCP", "trimesh", "pygltflib"):
+    package_datas, package_binaries, package_hidden_imports = collect_all(package_name)
+    datas += package_datas
+    binaries += package_binaries
+    for hidden_import in package_hidden_imports + collect_submodules(package_name):
+        if hidden_import not in hidden_imports:
+            hidden_imports.append(hidden_import)
+
 a = Analysis(
     ["run.py"],
     pathex=[str(Path(".").resolve())],
-    binaries=[],
-    datas=[],
+    binaries=binaries,
+    datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
@@ -77,7 +89,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=True,  # keep console so errors are visible during dev
     disable_windowed_traceback=False,
     argv_emulation=False,
