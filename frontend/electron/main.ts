@@ -200,6 +200,51 @@ function waitForBackend(port: number, timeoutMs = 90_000): Promise<void> {
   });
 }
 
+async function runBackendSelfTest(
+  cmd: string,
+  args: string[],
+  cwd?: string,
+): Promise<void> {
+  const uvicornMode =
+    args.length >= 3 &&
+    args[0] === "-m" &&
+    args[1] === "uvicorn";
+  const testArgs = uvicornMode ? ["run.py", "--self-test"] : [...args, "--self-test"];
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn(cmd, testArgs, {
+      cwd,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const lines: string[] = [];
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error("Backend self-test timed out after 45 seconds."));
+    }, 45_000);
+    proc.stdout?.on("data", (d: Buffer) => lines.push(d.toString()));
+    proc.stderr?.on("data", (d: Buffer) => lines.push(d.toString()));
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) return resolve();
+      const output = lines.join("").trim();
+      reject(
+        new Error(
+          `Self-test failed with exit code ${code}. ${output}`.trim(),
+        ),
+      );
+    });
+  });
+}
+
+function ensureWritableDir(pathToCheck: string): void {
+  fs.mkdirSync(pathToCheck, { recursive: true });
+  fs.accessSync(pathToCheck, fs.constants.W_OK);
+}
+
 async function hasHealthyBackend(port: number): Promise<boolean> {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/health`);
@@ -428,6 +473,7 @@ ipcMain.handle("backend:start", async () => {
   logBackend("start requested from renderer", { port: BACKEND_PORT });
 
   const { cmd, args, cwd } = getBackendBinary();
+  const glbDir = path.join(app.getPath("temp"), "cadviewer_glb");
   debugLog(
     "electron/main.ts:backend:start",
     "backend start requested",
@@ -441,6 +487,16 @@ ipcMain.handle("backend:start", async () => {
     sendProgress("backend", 100, "Backend ready.");
     return { ok: true, reused: true };
   }
+  try {
+    ensureWritableDir(glbDir);
+    await runBackendSelfTest(cmd, args, cwd);
+  } catch (err) {
+    backendStatus = "error";
+    return {
+      ok: false,
+      reason: `Backend preflight failed: ${String(err)}`,
+    };
+  }
 
   const backendLog: string[] = [];
 
@@ -449,7 +505,7 @@ ipcMain.handle("backend:start", async () => {
     env: {
       ...process.env,
       PORT: String(BACKEND_PORT),
-      GLB_DIR: path.join(app.getPath("temp"), "cadviewer_glb"),
+      GLB_DIR: glbDir,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -600,7 +656,11 @@ app.whenReady().then(async () => {
     }
 
     const { cmd, args, cwd } = getBackendBinary();
+    const glbDir = path.join(app.getPath("temp"), "cadviewer_glb");
     const backendLog: string[] = [];
+
+    ensureWritableDir(glbDir);
+    await runBackendSelfTest(cmd, args, cwd);
 
     backendStatus = "starting";
     logBackend("starting backend during app startup", { cmd, cwd: cwd ?? process.cwd() });
@@ -610,7 +670,7 @@ app.whenReady().then(async () => {
       env: {
         ...process.env,
         PORT: String(BACKEND_PORT),
-        GLB_DIR: path.join(app.getPath("temp"), "cadviewer_glb"),
+        GLB_DIR: glbDir,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

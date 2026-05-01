@@ -41,10 +41,58 @@ export interface ProcessedFile {
   assembly: AssemblyNode[];
   annotations: Annotation[];
   supported_format: boolean;
+  timings: {
+    upload_ms: number;
+    convert_ms: number;
+    extract_ms: number;
+    total_ms: number;
+  };
+  warnings: string[];
 }
 
 export type ViewMode = "solid" | "wireframe" | "transparent";
-export type PanelTab = "assembly" | "annotations" | "metadata";
+export type PanelTab = "assembly" | "annotations" | "metadata" | "measure";
+
+export type MeasurementType = "edge_length" | "hole_diameter" | "plane_distance";
+
+export interface PartFeatureSummary {
+  id: string;
+  label: string;
+  kind: "edge" | "hole" | "plane";
+}
+
+export interface PartSummary {
+  id: string;
+  name: string;
+  feature_counts: Record<string, number>;
+  features: PartFeatureSummary[];
+}
+
+export interface FileFeatureCatalog {
+  file_id: string;
+  parts: PartSummary[];
+}
+
+export interface FeatureMeasureRequest {
+  measurement_type: MeasurementType;
+  part_id: string;
+  feature_a: string;
+  feature_b?: string;
+}
+
+export interface FeatureMeasureResponse {
+  file_id: string;
+  measurement_type: MeasurementType;
+  part_id: string;
+  feature_a: string;
+  feature_b?: string | null;
+  value: {
+    value: number;
+    unit: string;
+    display: string;
+  };
+  markers: Array<{ x: number; y: number; z: number }>;
+}
 
 export interface CADViewerBridge {
   platform: string;

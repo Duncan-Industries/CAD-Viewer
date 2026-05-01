@@ -55,6 +55,7 @@ export function Toolbar({
               { tab: "assembly" as PanelTab, label: "Assembly" },
               { tab: "annotations" as PanelTab, label: "Notes" },
               { tab: "metadata" as PanelTab, label: "Info" },
+              { tab: "measure" as PanelTab, label: "Measure" },
             ].map(({ tab, label }) => (
               <Button
                 key={tab}

@@ -22,6 +22,7 @@ interface ModelProps {
   url: string;
   viewMode: ViewMode;
   onPartClick?: (name: string) => void;
+  onLoadStats?: (stats: { renderLoadMs: number; sceneNodes: number; meshCount: number }) => void;
 }
 
 function applyMaterial(
@@ -68,7 +69,9 @@ function applyMaterial(
   });
 }
 
-function CADModel({ url, viewMode, onPartClick }: ModelProps) {
+function CADModel({ url, viewMode, onPartClick, onLoadStats }: ModelProps) {
+  const { camera, controls } = useThree();
+  const loadStart = useRef<number>(performance.now());
   const { scene } = useGLTF(url);
   const cloned = useMemo(() => scene.clone(true), [scene]);
   const originalMaterials = useRef(new Map<string, THREE.Material | THREE.Material[]>());
@@ -76,6 +79,40 @@ function CADModel({ url, viewMode, onPartClick }: ModelProps) {
   useEffect(() => {
     applyMaterial(cloned, viewMode, originalMaterials.current);
   }, [cloned, viewMode]);
+
+  useEffect(() => {
+    const box = new THREE.Box3().setFromObject(cloned);
+    const size = box.getSize(new THREE.Vector3()).length();
+    const center = box.getCenter(new THREE.Vector3());
+    const cam = camera as THREE.PerspectiveCamera;
+    const safeSize = size > 0 ? size : 1;
+    cam.near = safeSize / 100;
+    cam.far = safeSize * 10;
+    cam.position.set(
+      center.x + safeSize,
+      center.y + safeSize * 0.6,
+      center.z + safeSize,
+    );
+    cam.lookAt(center);
+    cam.updateProjectionMatrix();
+    if (controls) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (controls as any).target.copy(center);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (controls as any).update();
+    }
+    let sceneNodes = 0;
+    let meshCount = 0;
+    cloned.traverse((node) => {
+      sceneNodes += 1;
+      if (node instanceof THREE.Mesh) meshCount += 1;
+    });
+    onLoadStats?.({
+      renderLoadMs: Math.round(performance.now() - loadStart.current),
+      sceneNodes,
+      meshCount,
+    });
+  }, [cloned, camera, controls, onLoadStats]);
 
   return (
     <primitive
@@ -110,44 +147,21 @@ function LoadingSpinner() {
 // Camera auto-fit
 // ---------------------------------------------------------------------------
 
-function AutoFit({ url }: { url: string }) {
-  const { camera, controls } = useThree();
-  const { scene } = useGLTF(url);
-
-  useEffect(() => {
-    const box = new THREE.Box3().setFromObject(scene);
-    const size = box.getSize(new THREE.Vector3()).length();
-    const center = box.getCenter(new THREE.Vector3());
-
-    const cam = camera as THREE.PerspectiveCamera;
-    cam.near = size / 100;
-    cam.far = size * 10;
-    cam.position.set(center.x + size, center.y + size * 0.6, center.z + size);
-    cam.lookAt(center);
-    cam.updateProjectionMatrix();
-
-    if (controls) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (controls as any).target.copy(center);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (controls as any).update();
-    }
-  }, [scene, camera, controls]);
-
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Scene
-// ---------------------------------------------------------------------------
-
 interface SceneProps {
   modelUrl: string;
   viewMode: ViewMode;
   onPartClick?: (name: string) => void;
+  measurementMarkers?: Array<{ x: number; y: number; z: number }>;
+  onLoadStats?: (stats: { renderLoadMs: number; sceneNodes: number; meshCount: number }) => void;
 }
 
-function ViewerScene({ modelUrl, viewMode, onPartClick }: SceneProps) {
+function ViewerScene({
+  modelUrl,
+  viewMode,
+  onPartClick,
+  measurementMarkers,
+  onLoadStats,
+}: SceneProps) {
   return (
     <>
       <ambientLight intensity={1.2} />
@@ -157,9 +171,21 @@ function ViewerScene({ modelUrl, viewMode, onPartClick }: SceneProps) {
 
       <Suspense fallback={<LoadingSpinner />}>
         <Center>
-          <CADModel url={modelUrl} viewMode={viewMode} onPartClick={onPartClick} />
+          <CADModel
+            url={modelUrl}
+            viewMode={viewMode}
+            onPartClick={onPartClick}
+            onLoadStats={onLoadStats}
+          />
         </Center>
-        <AutoFit url={modelUrl} />
+        {(measurementMarkers ?? []).map((marker, idx) => (
+          <group key={`${marker.x}:${marker.y}:${marker.z}:${idx}`} position={[marker.x, marker.y, marker.z]}>
+            <mesh>
+              <sphereGeometry args={[0.6, 16, 16]} />
+              <meshStandardMaterial color="#fbbf24" emissive="#7c2d12" />
+            </mesh>
+          </group>
+        ))}
       </Suspense>
 
       <Grid
@@ -191,9 +217,17 @@ interface Viewer3DProps {
   modelUrl: string | null;
   viewMode: ViewMode;
   onPartClick?: (name: string) => void;
+  measurementMarkers?: Array<{ x: number; y: number; z: number }>;
+  onLoadStats?: (stats: { renderLoadMs: number; sceneNodes: number; meshCount: number }) => void;
 }
 
-export function Viewer3D({ modelUrl, viewMode, onPartClick }: Viewer3DProps) {
+export function Viewer3D({
+  modelUrl,
+  viewMode,
+  onPartClick,
+  measurementMarkers,
+  onLoadStats,
+}: Viewer3DProps) {
   return (
     <div className={`w-full h-full bg-slate-950${modelUrl ? "" : " pointer-events-none"}`}>
       <Canvas
@@ -211,6 +245,8 @@ export function Viewer3D({ modelUrl, viewMode, onPartClick }: Viewer3DProps) {
             modelUrl={modelUrl}
             viewMode={viewMode}
             onPartClick={onPartClick}
+            measurementMarkers={measurementMarkers}
+            onLoadStats={onLoadStats}
           />
         )}
         {!modelUrl && (

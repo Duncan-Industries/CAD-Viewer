@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { Toolbar } from "./components/Toolbar";
 import { FileUpload } from "./components/FileUpload";
@@ -7,9 +7,11 @@ import { SettingsModal } from "./components/SettingsModal";
 import { AssemblyTree } from "./components/AssemblyTree";
 import { AnnotationsPanel, MetadataPanel } from "./components/AnnotationsPanel";
 import { useCADFile } from "./hooks/useCADFile";
+import { FeatureMeasurePanel } from "./components/FeatureMeasurePanel";
 import { CAD_FILE_ACCEPT, clearFileInput, openFileInputPicker, pickFirstFile } from "./services/filePicker";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type AppSettings } from "./services/settings";
-import type { PanelTab, ViewMode } from "./types/cad";
+import { getFeatureCatalog, measureFeature } from "./services/api";
+import type { FeatureMeasureResponse, FileFeatureCatalog, MeasurementType, PanelTab, ViewMode } from "./types/cad";
 import { Button } from "./components/ui/button";
 import { Spinner } from "./components/ui/spinner";
 import { UiTabs, UiTabsList, UiTabsPanel, UiTabsTrigger } from "./components/ui/tabs";
@@ -116,6 +118,15 @@ function LeftNavRail({
       >
         I
       </Button>
+      <Button
+        type="button"
+        size="sm"
+        className={sectionButtonClass("measure")}
+        onClick={() => onNavigate("measure")}
+        title="Measure"
+      >
+        M
+      </Button>
 
       <div className="mt-auto">
         <Button
@@ -141,12 +152,21 @@ function LeftNavRail({
 // ---------------------------------------------------------------------------
 
 export default function App() {
-  const { status, cadFile, error, load, reset } = useCADFile();
+  const { status, cadFile, error, clientUploadMs, load, reset } = useCADFile();
   const [viewMode, setViewMode] = useState<ViewMode>("solid");
   const [tab, setTab] = useState<PanelTab>("assembly");
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const [featureCatalog, setFeatureCatalog] = useState<FileFeatureCatalog | null>(null);
+  const [measureError, setMeasureError] = useState<string | null>(null);
+  const [measureBusy, setMeasureBusy] = useState(false);
+  const [measureType, setMeasureType] = useState<MeasurementType>("edge_length");
+  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [featureA, setFeatureA] = useState<string | null>(null);
+  const [featureB, setFeatureB] = useState<string | null>(null);
+  const [measureResult, setMeasureResult] = useState<FeatureMeasureResponse | null>(null);
+  const [renderLoadMs, setRenderLoadMs] = useState<number | null>(null);
 
   // No Electron IPC (browser/web dev) → skip backend wait
   const hasIpc = !!window.cadviewer?.onSetupProgress;
@@ -178,6 +198,56 @@ export default function App() {
     if (!cadFile) return;
     setTab(settings.defaultPanelTab);
   }, [cadFile, settings.defaultPanelTab]);
+
+  useEffect(() => {
+    setFeatureCatalog(null);
+    setMeasureError(null);
+    setMeasureResult(null);
+    setSelectedPartId(null);
+    setFeatureA(null);
+    setFeatureB(null);
+    setRenderLoadMs(null);
+    if (!cadFile) return;
+    getFeatureCatalog(cadFile.file_id)
+      .then((catalog) => setFeatureCatalog(catalog))
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : "Failed to load feature catalog.";
+        setMeasureError(message);
+      });
+  }, [cadFile]);
+
+  const handlePartClick = useCallback((name: string) => {
+    if (!featureCatalog) return;
+    const match = featureCatalog.parts.find(
+      (part) => part.name === name || part.name.endsWith(name) || name.endsWith(part.name),
+    );
+    if (match) {
+      setSelectedPartId(match.id);
+      setTab("measure");
+    }
+  }, [featureCatalog]);
+
+  const runMeasure = useCallback(async () => {
+    if (!cadFile || !selectedPartId || !featureA) return;
+    if (measureType === "plane_distance" && !featureB) return;
+    setMeasureBusy(true);
+    setMeasureError(null);
+    try {
+      const result = await measureFeature(cadFile.file_id, {
+        measurement_type: measureType,
+        part_id: selectedPartId,
+        feature_a: featureA,
+        feature_b: measureType === "plane_distance" ? featureB ?? undefined : undefined,
+      });
+      setMeasureResult(result);
+      setTab("measure");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Measurement failed.";
+      setMeasureError(message);
+    } finally {
+      setMeasureBusy(false);
+    }
+  }, [cadFile, selectedPartId, featureA, featureB, measureType]);
 
   const isLoading = status === "uploading" || status === "processing";
   const hasFile = cadFile !== null;
@@ -311,6 +381,9 @@ export default function App() {
           <Viewer3D
             modelUrl={cadFile ? cadFile.gltf_url : null}
             viewMode={viewMode}
+            onPartClick={handlePartClick}
+            measurementMarkers={measureResult?.markers}
+            onLoadStats={(stats) => setRenderLoadMs(stats.renderLoadMs)}
           />
         </main>
 
@@ -329,6 +402,7 @@ export default function App() {
                   <Badge count={cadFile.annotations.length} />
                 </UiTabsTrigger>
                 <UiTabsTrigger value="metadata">Info</UiTabsTrigger>
+                <UiTabsTrigger value="measure">Measure</UiTabsTrigger>
               </UiTabsList>
 
               <UiTabsPanel value="assembly" className="flex-1 min-h-0">
@@ -339,6 +413,39 @@ export default function App() {
               </UiTabsPanel>
               <UiTabsPanel value="metadata" className="flex-1 min-h-0">
                 <MetadataPanel metadata={cadFile.metadata} />
+              </UiTabsPanel>
+              <UiTabsPanel value="measure" className="flex-1 min-h-0">
+                <FeatureMeasurePanel
+                  catalog={featureCatalog}
+                  selectedPartId={selectedPartId}
+                  selectedMeasureType={measureType}
+                  featureA={featureA}
+                  featureB={featureB}
+                  busy={measureBusy}
+                  error={measureError}
+                  result={measureResult}
+                  onPartChange={(id) => {
+                    setSelectedPartId(id || null);
+                    setFeatureA(null);
+                    setFeatureB(null);
+                    setMeasureResult(null);
+                  }}
+                  onTypeChange={(type) => {
+                    setMeasureType(type);
+                    setFeatureA(null);
+                    setFeatureB(null);
+                    setMeasureResult(null);
+                  }}
+                  onFeatureAChange={(id) => {
+                    setFeatureA(id || null);
+                    setMeasureResult(null);
+                  }}
+                  onFeatureBChange={(id) => {
+                    setFeatureB(id || null);
+                    setMeasureResult(null);
+                  }}
+                  onMeasure={runMeasure}
+                />
               </UiTabsPanel>
             </UiTabs>
           </aside>
@@ -351,7 +458,7 @@ export default function App() {
             {cadFile ? `Loaded: ${cadFile.metadata.filename}` : "No file loaded"}
           </span>
           <span>
-            Ctrl+O Open file · Ctrl+, Settings
+            {cadFile ? `upload ${cadFile.timings.upload_ms}ms · convert ${cadFile.timings.convert_ms}ms · extract ${cadFile.timings.extract_ms}ms · render ${renderLoadMs ?? "-"}ms · client ${clientUploadMs ?? "-"}ms` : "Ctrl+O Open file · Ctrl+, Settings"}
           </span>
         </footer>
       )}

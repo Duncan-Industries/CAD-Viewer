@@ -21,6 +21,8 @@ def self_test() -> None:
     cadquery = import_module("cadquery")
     import_module("casadi")
     import_module("OCP")
+    import_module("trimesh")
+    import_module("uvicorn")
     processor = import_module("services.cad_processor")
 
     if not processor._has_cadquery():
