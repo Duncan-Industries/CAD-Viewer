@@ -5,7 +5,6 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import (
     collect_all,
-    collect_data_files,
     collect_dynamic_libs,
     collect_submodules,
 )
@@ -62,9 +61,7 @@ for package_name in ("cadquery", "OCP", "casadi", "trimesh", "pygltflib"):
         if hidden_import not in hidden_imports:
             hidden_imports.append(hidden_import)
 
-# CasADi ships a SWIG extension plus adjacent DLLs that PyInstaller can miss
-# unless they are explicitly treated as package data/binaries.
-datas += collect_data_files("casadi", includes=["*.dll", "*.pyd"])
+# CasADi ships adjacent DLLs that can be missed without explicit collection.
 binaries += collect_dynamic_libs("casadi")
 
 a = Analysis(
@@ -83,10 +80,17 @@ a = Analysis(
     noarchive=False,
 )
 
-# Remove test / example data to keep binary smaller
-a.datas = [d for d in a.datas if not any(
-    ex in d[0] for ex in ["test", "example", "sample", "doc"]
-)]
+def _is_excluded_data_entry(entry: tuple[str, str, str]) -> bool:
+    excluded_segments = {"test", "tests", "example", "examples", "sample", "samples"}
+    for path_value in (entry[0], entry[1]):
+        for segment in Path(path_value).parts:
+            if segment.lower() in excluded_segments:
+                return True
+    return False
+
+
+# Remove common non-runtime examples/tests while preserving unrelated assets.
+a.datas = [entry for entry in a.datas if not _is_excluded_data_entry(entry)]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

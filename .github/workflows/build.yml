@@ -29,13 +29,19 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
-          pip install pyinstaller
+          python -m pip install -r backend/requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Preflight backend CAD imports
+        shell: pwsh
+        run: |
+          python -c "import importlib; modules=('casadi','casadi._casadi','cadquery'); [importlib.import_module(m) for m in modules]; print('Pre-freeze import check passed:', ', '.join(modules))"
+          python -c "import importlib, casadi; casadi_native = importlib.import_module('casadi._casadi'); print('casadi package:', casadi.__file__); print('casadi native:', casadi_native.__file__)"
 
       - name: Build backend executable
         shell: pwsh
         working-directory: backend
-        run: pyinstaller cadviewer-api.spec --distpath dist --noconfirm --clean
+        run: python -m PyInstaller cadviewer-api.spec --distpath dist --noconfirm --clean
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -61,7 +67,13 @@ jobs:
       - name: Smoke test bundled backend imports
         shell: pwsh
         run: |
-          & "backend/dist/cadviewer-api.exe" --self-test
+          try {
+            & "backend/dist/cadviewer-api.exe" --self-test
+          } catch {
+            Write-Host "Bundled backend self-test failed."
+            Write-Host "File details: $((Get-Item backend/dist/cadviewer-api.exe).Length) bytes"
+            throw
+          }
 
       - name: Build Electron (compile only)
         shell: pwsh

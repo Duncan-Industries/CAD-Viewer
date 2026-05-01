@@ -10,10 +10,29 @@ import os
 import sys
 from importlib import import_module
 
+# Keep handles alive for process lifetime so added DLL dirs stay active.
+_DLL_DIR_HANDLES = []
+
+
+def _configure_windows_dll_search_paths() -> None:
+    """Add bundled directories used by native extensions on Windows."""
+    if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
+        return
+
+    bundle_dir = getattr(sys, "_MEIPASS", None)  # type: ignore[attr-defined]
+    if not bundle_dir:
+        return
+
+    for dll_dir in (bundle_dir, os.path.join(bundle_dir, "casadi")):
+        if os.path.isdir(dll_dir):
+            _DLL_DIR_HANDLES.append(os.add_dll_directory(dll_dir))
+
+
 # PyInstaller sets _MEIPASS when running from a bundle.
 # We need to add the bundle directory to sys.path so FastAPI can find our app.
 if hasattr(sys, "_MEIPASS"):
     sys.path.insert(0, sys._MEIPASS)  # type: ignore[attr-defined]
+    _configure_windows_dll_search_paths()
 
 
 def self_test() -> None:
