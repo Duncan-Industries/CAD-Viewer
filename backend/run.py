@@ -8,10 +8,38 @@ main process) and starts uvicorn programmatically.
 
 import os
 import sys
+import json
+import time
+from pathlib import Path
 from importlib import import_module
 
 # Keep handles alive for process lifetime so added DLL dirs stay active.
 _DLL_DIR_HANDLES = []
+DEBUG_LOG_PATH = Path(
+    os.environ.get(
+        "CADVIEWER_DEBUG_LOG_PATH",
+        r"C:\Users\jake\Documents\GitHub\CAD-Viewer\debug-b66542.log",
+    )
+)
+
+
+def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    # #region agent log
+    try:
+        entry = {
+            "sessionId": "b66542",
+            "runId": run_id,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with DEBUG_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
+    except Exception:
+        pass
+    # #endregion
 
 
 def _configure_windows_dll_search_paths() -> None:
@@ -54,6 +82,20 @@ def main() -> None:
     if "--self-test" in sys.argv:
         self_test()
         return
+
+    _debug_log(
+        "startup",
+        "H7",
+        "run.py:main:startup",
+        "Backend runtime startup",
+        {
+            "frozen": bool(getattr(sys, "frozen", False)),
+            "has_meipass": hasattr(sys, "_MEIPASS"),
+            "cwd": os.getcwd(),
+            "argv0": sys.argv[0],
+            "debug_log_path": str(DEBUG_LOG_PATH),
+        },
+    )
 
     port = int(os.environ.get("PORT", "48321"))
     glb_dir = os.environ.get(

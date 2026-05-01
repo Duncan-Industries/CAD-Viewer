@@ -39,7 +39,12 @@ QUALITY_PROFILES = {
     "balanced": {"tolerance": 0.2, "angular_tolerance": 0.5},
     "high": {"tolerance": 0.06, "angular_tolerance": 0.2},
 }
-DEBUG_LOG_PATH = Path(__file__).resolve().parents[2] / "debug-b66542.log"
+DEBUG_LOG_PATH = Path(
+    os.environ.get(
+        "CADVIEWER_DEBUG_LOG_PATH",
+        r"C:\Users\jake\Documents\GitHub\CAD-Viewer\debug-b66542.log",
+    )
+)
 
 
 def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
@@ -207,7 +212,17 @@ def convert(input_path: str, filename: str, output_dir: str, file_id: str) -> tu
 
     if ext in (".gltf",):
         # trimesh handles GLTF → GLB packing
-        _direct_to_glb(input_path, cached_glb)
+        try:
+            _direct_to_glb(input_path, cached_glb)
+        except Exception as gltf_err:
+            _debug_log(
+                run_id,
+                "H6",
+                "cad_processor.py:convert:gltf_direct_failure",
+                "Direct GLTF to GLB conversion failed",
+                {"error_type": type(gltf_err).__name__, "error": str(gltf_err)},
+            )
+            raise
         _copy_if_needed(cached_glb, target_glb)
         return target_glb, diagnostics
 
@@ -263,6 +278,16 @@ def convert(input_path: str, filename: str, output_dir: str, file_id: str) -> tu
         return target_glb, diagnostics
 
     # All other mesh formats — trimesh direct conversion
-    _direct_to_glb(input_path, cached_glb)
+    try:
+        _direct_to_glb(input_path, cached_glb)
+    except Exception as direct_err:
+        _debug_log(
+            run_id,
+            "H6",
+            "cad_processor.py:convert:direct_failure",
+            "Direct mesh conversion failed",
+            {"error_type": type(direct_err).__name__, "error": str(direct_err), "ext": ext},
+        )
+        raise
     _copy_if_needed(cached_glb, target_glb)
     return target_glb, diagnostics

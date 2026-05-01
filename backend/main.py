@@ -51,7 +51,12 @@ os.makedirs(GLB_DIR, exist_ok=True)
 MAX_FILE_SIZE = 500 * 1024 * 1024
 
 FILE_FEATURE_CACHE: dict[str, dict] = {}
-DEBUG_LOG_PATH = Path(__file__).resolve().parents[1] / "debug-b66542.log"
+DEBUG_LOG_PATH = Path(
+    os.environ.get(
+        "CADVIEWER_DEBUG_LOG_PATH",
+        r"C:\Users\jake\Documents\GitHub\CAD-Viewer\debug-b66542.log",
+    )
+)
 
 
 def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
