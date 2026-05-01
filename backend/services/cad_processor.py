@@ -14,6 +14,8 @@ import os
 import tempfile
 import shutil
 import hashlib
+import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,26 @@ QUALITY_PROFILES = {
     "balanced": {"tolerance": 0.2, "angular_tolerance": 0.5},
     "high": {"tolerance": 0.06, "angular_tolerance": 0.2},
 }
+DEBUG_LOG_PATH = Path(__file__).resolve().parents[2] / "debug-b66542.log"
+
+
+def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    # #region agent log
+    try:
+        entry = {
+            "sessionId": "b66542",
+            "runId": run_id,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with DEBUG_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
+    except Exception:
+        pass
+    # #endregion
 
 
 def _has_cadquery() -> bool:
@@ -133,6 +155,21 @@ def convert(input_path: str, filename: str, output_dir: str, file_id: str) -> tu
     """
     ext = Path(filename).suffix.lower()
     profile_name = _get_quality_profile()
+    run_id = f"convert-{file_id}"
+    _debug_log(
+        run_id,
+        "H4",
+        "cad_processor.py:convert:entry",
+        "Conversion entry",
+        {
+            "input_path": input_path,
+            "filename": filename,
+            "ext": ext,
+            "output_dir": output_dir,
+            "output_dir_exists": os.path.isdir(output_dir),
+            "profile": profile_name,
+        },
+    )
 
     if ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(
@@ -153,6 +190,13 @@ def convert(input_path: str, filename: str, output_dir: str, file_id: str) -> tu
     if os.path.exists(cached_glb):
         _copy_if_needed(cached_glb, target_glb)
         diagnostics["cache_hit"] = True
+        _debug_log(
+            run_id,
+            "H4",
+            "cad_processor.py:convert:cache_hit",
+            "Cache hit path used",
+            {"cached_glb": cached_glb, "target_glb": target_glb},
+        )
         return target_glb, diagnostics
 
     # GLTF/GLB — copy directly; no conversion needed
@@ -169,7 +213,15 @@ def convert(input_path: str, filename: str, output_dir: str, file_id: str) -> tu
 
     # STEP / IGES — need OCC tessellation
     if ext in (".step", ".stp", ".iges", ".igs"):
-        if not _has_cadquery():
+        has_cadquery = _has_cadquery()
+        _debug_log(
+            run_id,
+            "H2",
+            "cad_processor.py:convert:cadquery_check",
+            "CadQuery availability check",
+            {"has_cadquery": has_cadquery, "ext": ext},
+        )
+        if not has_cadquery:
             raise RuntimeError(
                 "cadquery is required for STEP/IGES conversion but is not installed."
             )
@@ -187,6 +239,18 @@ def convert(input_path: str, filename: str, output_dir: str, file_id: str) -> tu
                     f"cadquery tessellation fallback triggered: {cadquery_err}"
                 )
             except Exception as trimesh_err:
+                _debug_log(
+                    run_id,
+                    "H2",
+                    "cad_processor.py:convert:step_iges_failure",
+                    "Both cadquery and fallback conversion failed",
+                    {
+                        "cadquery_error_type": type(cadquery_err).__name__,
+                        "cadquery_error": str(cadquery_err),
+                        "trimesh_error_type": type(trimesh_err).__name__,
+                        "trimesh_error": str(trimesh_err),
+                    },
+                )
                 raise RuntimeError(
                     "Failed to convert STEP/IGES file. "
                     f"cadquery path error: {cadquery_err}; "
