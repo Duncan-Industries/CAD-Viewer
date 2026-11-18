@@ -1,6 +1,6 @@
 """
 Extracts annotations, assembly trees, and metadata from CAD files.
-Supports STEP (AP203/AP214/AP242), IGES, and GLTF extras.
+Supports STEP (AP203/AP214/AP242), IGES, 3D PDF/PRC, and GLTF extras.
 """
 
 import os
@@ -146,13 +146,26 @@ def _extract_step_header(filepath: str) -> dict:
 
 def _extract_step_annotations_from_text(filepath: str) -> list[Annotation]:
     """
-    Fallback: scan raw STEP text for DRAUGHTING_NOTE and DESCRIPTIVE_REPRESENTATION_ITEM
-    entities which are commonly used for embedded notes.
+    Fallback: scan raw STEP text for draughting notes, dimensions, and
+    descriptive representation items commonly used for embedded PMI.
     """
     annotations = []
     try:
         with open(filepath, "r", errors="replace") as f:
             content = f.read()
+
+        def _add(ann_type: str, text: str, entity: str) -> None:
+            text = text.strip()
+            if not text or text in ("", " ", "$"):
+                return
+            annotations.append(
+                Annotation(
+                    id=_new_id(),
+                    type=ann_type,
+                    text=text,
+                    metadata={"entity": entity},
+                )
+            )
 
         # DESCRIPTIVE_REPRESENTATION_ITEM (notes/descriptions)
         for m in re.finditer(
@@ -161,30 +174,15 @@ def _extract_step_annotations_from_text(filepath: str) -> list[Annotation]:
         ):
             name, value = m.group(1).strip(), m.group(2).strip()
             if value and value not in ("", " "):
-                annotations.append(
-                    Annotation(
-                        id=_new_id(),
-                        type="note",
-                        text=f"{name}: {value}" if name else value,
-                        metadata={"entity": "DESCRIPTIVE_REPRESENTATION_ITEM"},
-                    )
-                )
+                label = f"{name}: {value}" if name else value
+                _add("note", label, "DESCRIPTIVE_REPRESENTATION_ITEM")
 
         # DRAUGHTING_ANNOTATION_OCCURRENCE
         for m in re.finditer(
             r"DRAUGHTING_ANNOTATION_OCCURRENCE\s*\(\s*'([^']*)'",
             content,
         ):
-            text = m.group(1).strip()
-            if text:
-                annotations.append(
-                    Annotation(
-                        id=_new_id(),
-                        type="note",
-                        text=text,
-                        metadata={"entity": "DRAUGHTING_ANNOTATION"},
-                    )
-                )
+            _add("note", m.group(1), "DRAUGHTING_ANNOTATION")
 
         # PROPERTY_DEFINITION with notes
         for m in re.finditer(
@@ -193,14 +191,31 @@ def _extract_step_annotations_from_text(filepath: str) -> list[Annotation]:
         ):
             name, desc = m.group(1).strip(), m.group(2).strip()
             if desc and desc not in ("", " ", "$"):
-                annotations.append(
-                    Annotation(
-                        id=_new_id(),
-                        type="note",
-                        text=f"{name}: {desc}" if name else desc,
-                        metadata={"entity": "PROPERTY_DEFINITION"},
-                    )
-                )
+                label = f"{name}: {desc}" if name else desc
+                _add("note", label, "PROPERTY_DEFINITION")
+
+        # Common draughting note / dimension text carriers in AP214/AP242
+        for m in re.finditer(
+            r"DRAUGHTING_CALLOUT\s*\(\s*'([^']*)'",
+            content,
+        ):
+            _add("note", m.group(1), "DRAUGHTING_CALLOUT")
+
+        for m in re.finditer(
+            r"(?:DIMENSIONAL_SIZE|DIMENSIONAL_LOCATION|ANGULAR_LOCATION|ANGULAR_SIZE)\s*\(\s*'([^']*)'",
+            content,
+        ):
+            text = m.group(1).strip()
+            if text:
+                _add("dimension", text, "DIMENSION")
+
+        for m in re.finditer(
+            r"MEASURE_REPRESENTATION_ITEM\s*\(\s*'([^']*)'\s*,\s*(?:POSITIVE_)?LENGTH_MEASURE\s*\(\s*([-\d.Ee+]+)\s*\)",
+            content,
+        ):
+            name, value = m.group(1).strip(), m.group(2).strip()
+            label = f"{name}: {value}" if name else value
+            _add("dimension", label, "MEASURE_REPRESENTATION_ITEM")
 
     except Exception:
         pass
@@ -353,6 +368,76 @@ def extract_generic(filepath: str, filename: str, file_size: int, fmt: str) -> d
 
 
 # ---------------------------------------------------------------------------
+# 3D PDF / PRC extraction (nanoprc-py)
+# ---------------------------------------------------------------------------
+
+def extract_prc_pdf(filepath: str, filename: str, file_size: int) -> dict[str, Any]:
+    """Extract metadata, assembly tree, and PMI notes/dimensions from PRC/3D PDF."""
+    from services import prc_pdf_processor
+
+    ext = os.path.splitext(filename)[1].lower()
+    fmt = "3D PDF" if ext == ".pdf" else "PRC"
+
+    metadata = FileMetadata(
+        filename=filename,
+        format=fmt,
+        file_size=file_size,
+        description="PRC tessellation (mesh view; exact B-Rep not extracted)",
+    )
+    annotations: list[Annotation] = []
+    assembly: list[AssemblyNode] = []
+
+    if not prc_pdf_processor._has_nanoprc():
+        annotations.append(
+            Annotation(
+                id=_new_id(),
+                type="note",
+                text="nanoprc-py is not installed; assembly tree unavailable.",
+                metadata={"source": "prc_pdf"},
+            )
+        )
+        return {"metadata": metadata, "assembly": assembly, "annotations": annotations}
+
+    try:
+        summary = prc_pdf_processor.open_and_summarize(filepath)
+        assembly = summary.get("assembly") or []
+        views = int(summary.get("views") or 0)
+        tess = int(summary.get("tessellations") or 0)
+        line_tess = int(summary.get("line_tessellations") or 0)
+        text_anns = summary.get("annotations") or []
+        if isinstance(text_anns, list):
+            annotations.extend(text_anns)
+        annotations.append(
+            Annotation(
+                id=_new_id(),
+                type="note",
+                text=(
+                    f"PRC content: {views} view(s), {tess} surface tessellation(s), "
+                    f"{line_tess} line tessellation(s), {len(text_anns)} text primitive(s)."
+                ),
+                metadata={
+                    "source": "prc_pdf",
+                    "views": views,
+                    "tessellations": tess,
+                    "line_tessellations": line_tess,
+                    "text_primitives": len(text_anns),
+                },
+            )
+        )
+    except Exception as exc:
+        annotations.append(
+            Annotation(
+                id=_new_id(),
+                type="note",
+                text=f"Could not read PRC metadata: {exc}",
+                metadata={"source": "prc_pdf", "error": str(exc)},
+            )
+        )
+
+    return {"metadata": metadata, "assembly": assembly, "annotations": annotations}
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -361,6 +446,8 @@ EXTRACTORS = {
     ".stp": extract_step,
     ".iges": extract_iges,
     ".igs": extract_iges,
+    ".pdf": extract_prc_pdf,
+    ".prc": extract_prc_pdf,
 }
 
 
@@ -373,5 +460,7 @@ def extract(filepath: str, filename: str) -> dict[str, Any]:
         return extract_step(filepath, filename, file_size)
     elif ext in (".iges", ".igs"):
         return extract_iges(filepath, filename, file_size)
+    elif ext in (".pdf", ".prc"):
+        return extract_prc_pdf(filepath, filename, file_size)
     else:
         return extract_generic(filepath, filename, file_size, fmt)

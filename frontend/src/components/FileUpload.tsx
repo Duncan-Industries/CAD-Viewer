@@ -2,7 +2,8 @@ import { useCallback, useRef, useState } from "react";
 import {
   CAD_FILE_ACCEPT,
   clearFileInput,
-  openFileInputPicker,
+  isSupportedCadFileName,
+  openCadFilePicker,
   pickFirstFile,
 } from "../services/filePicker";
 
@@ -18,7 +19,7 @@ export function FileUpload({ onFile, disabled }: Props) {
   const handleFiles = useCallback(
     (files: FileList | null) => {
       const file = pickFirstFile(files);
-      if (!file) return;
+      if (!file || !isSupportedCadFileName(file.name)) return;
       onFile(file);
     },
     [onFile],
@@ -33,17 +34,18 @@ export function FileUpload({ onFile, disabled }: Props) {
     [disabled, handleFiles],
   );
 
-  const openPicker = useCallback(() => {
+  const openPicker = useCallback(async () => {
     if (disabled) return;
-    openFileInputPicker(inputRef.current);
-  }, [disabled]);
+    const file = await openCadFilePicker(inputRef.current);
+    if (file) onFile(file);
+  }, [disabled, onFile]);
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (disabled) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        openPicker();
+        void openPicker();
       }
     },
     [disabled, openPicker],
@@ -54,7 +56,9 @@ export function FileUpload({ onFile, disabled }: Props) {
       role="button"
       tabIndex={disabled ? -1 : 0}
       aria-disabled={disabled}
-      onClick={openPicker}
+      onClick={() => {
+        void openPicker();
+      }}
       onKeyDown={onKeyDown}
       onDragOver={(e) => {
         e.preventDefault();
@@ -99,7 +103,7 @@ export function FileUpload({ onFile, disabled }: Props) {
           Drop a CAD file here, or <span className="text-blue-400">click to browse</span>
         </p>
         <p className="text-slate-500 text-sm mt-1">
-          STEP · IGES · STL · OBJ · GLTF · PLY · 3MF
+          STEP · IGES · STL · OBJ · GLTF · PLY · 3MF · 3D PDF · PRC
         </p>
       </div>
     </div>

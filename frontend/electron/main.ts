@@ -7,7 +7,7 @@
  *  3. Kill backend on app quit
  */
 
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { spawn, execFile, ChildProcess } from "node:child_process";
 import http from "node:http";
 import fs from "node:fs";
@@ -568,6 +568,44 @@ ipcMain.handle("backend:start", async () => {
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("backend:status", () => backendStatus);
+
+// ---------------------------------------------------------------------------
+// IPC: dialog:openCadFile — OS explorer filtered to 3D / CAD only
+// ---------------------------------------------------------------------------
+
+const CAD_DIALOG_EXTENSIONS = [
+  "step",
+  "stp",
+  "iges",
+  "igs",
+  "stl",
+  "obj",
+  "glb",
+  "gltf",
+  "ply",
+  "off",
+  "3mf",
+  "pdf",
+  "prc",
+];
+
+ipcMain.handle("dialog:openCadFile", async () => {
+  const win = mainWindow ?? BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win ?? undefined, {
+    title: "Open 3D / CAD file",
+    properties: ["openFile"],
+    filters: [{ name: "3D / CAD files", extensions: CAD_DIALOG_EXTENSIONS }],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  const filePath = result.filePaths[0]!;
+  const data = fs.readFileSync(filePath);
+  return {
+    name: path.basename(filePath),
+    data: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Create window — called immediately on app ready

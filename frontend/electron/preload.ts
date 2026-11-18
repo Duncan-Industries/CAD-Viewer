@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld("cadviewer", {
   startBackend: () => ipcRenderer.invoke("backend:start"),
   getBackendStatus: () => ipcRenderer.invoke("backend:status"),
 
+  // Native file dialog — CAD / 3D extensions only
+  openCadFile: () =>
+    ipcRenderer.invoke("dialog:openCadFile") as Promise<{ name: string; data: ArrayBuffer } | null>,
+
   // Progress events streamed from main → renderer
   onSetupProgress: (
     cb: (event: { stage: string; percent: number; message: string }) => void,

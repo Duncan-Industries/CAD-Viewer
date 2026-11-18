@@ -2,7 +2,7 @@
 
 A CAD file viewer built with **Python (FastAPI)**, **React 19**, **Three.js** (via react-three-fiber), **Tailwind CSS v4**, and **Base UI**. Runs as a **web app** (Docker / local dev) or a native **desktop app** (Electron + electron-builder).
 
-Supports viewing STEP, IGES, STL, OBJ, GLTF/GLB, PLY, OFF, and 3MF files with automatic extraction of embedded annotations, assembly trees, and file metadata.
+Supports viewing STEP, IGES, STL, OBJ, GLTF/GLB, PLY, OFF, 3MF, and **3D PDF / PRC** files with automatic extraction of embedded annotations, assembly trees, and file metadata.
 
 ---
 
@@ -60,48 +60,54 @@ docker compose down
 
 ### Prerequisites
 
-| Tool | Minimum version |
-|---|---|
-| Python | 3.11 |
-| Node.js | 20 |
-| npm | 9 |
+| Tool | Minimum version | Notes |
+|---|---|---|
+| [uv](https://docs.astral.sh/uv/) | latest | Manages Python 3.11 for the backend (do **not** use system Python 3.12+) |
+| Node.js | 20 | |
+| npm | 9 | |
 
-### Backend
+CadQuery pins OpenCASCADE wheels that only ship for **Python 3.11**. Installing with a newer system Python (e.g. 3.14) will fail with `No matching distribution found for cadquery-ocp==7.8.1`.
+
+Install uv if needed:
 
 ```bash
-cd backend
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# Create a virtual environment
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# Install dependencies
-# cadquery pulls in pythonocc-core (OpenCASCADE) automatically.
-# On Linux you may first need: sudo apt install libgl1-mesa-glx libgomp1
-pip install -r requirements.txt
-
-# Start the API server (hot-reload)
-uvicorn main:app --reload --port 8000
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-The API is now at http://localhost:8000  
-Interactive docs: http://localhost:8000/docs
+On Linux you may also need: `sudo apt install libgl1-mesa-glx libgomp1`
 
-### Frontend
+### One-command setup + start
+
+From the **repo root**:
 
 ```bash
-cd frontend
+# Create backend/.venv (Python 3.11 via uv) + install frontend deps
+npm run setup
 
-# Install dependencies
-npm install
-
-# Start the dev server (proxies /api → localhost:8000)
+# Start API + Vite together
 npm run dev
 ```
 
-Open http://localhost:5173 in your browser.
+| Service | URL |
+|---|---|
+| Web UI | http://localhost:5173 |
+| API | http://127.0.0.1:48321 |
+| API docs | http://127.0.0.1:48321/docs |
 
-### Build for production
+Vite proxies `/api` → `http://localhost:48321` (same port as Electron).
+
+Other root scripts:
+
+```bash
+npm run dev:electron   # API + Electron/Vite desktop shell
+npm run docker         # docker compose up --build
+```
+
+### Build for production (web)
 
 ```bash
 cd frontend
@@ -114,9 +120,16 @@ npm run build        # output goes to frontend/dist/
 
 ```
 cadviewer/
+├── package.json                     # Root: npm run setup / npm run dev
+├── scripts/
+│   ├── setup.mjs                    # uv Python 3.11 venv + npm installs
+│   ├── dev-backend.mjs              # uvicorn on port 48321
+│   └── build-python.sh              # PyInstaller helper
 ├── backend/
 │   ├── main.py                      # FastAPI app, upload + serve endpoints
+│   ├── run.py                       # Packaged / Electron entry
 │   ├── requirements.txt
+│   ├── .python-version              # 3.11
 │   ├── Dockerfile
 │   ├── services/
 │   │   ├── cad_processor.py         # CAD → GLB conversion (CadQuery + trimesh)
@@ -126,7 +139,7 @@ cadviewer/
 │
 ├── frontend/
 │   ├── package.json
-│   ├── vite.config.ts
+│   ├── vite.config.ts               # Dev proxy /api → localhost:48321
 │   ├── nginx.conf                   # Used by Docker image
 │   └── src/
 │       ├── App.tsx                  # Root layout with tab panel
@@ -162,6 +175,10 @@ cadviewer/
 | `.ply` | PLY | None |
 | `.off` | OFF mesh | None |
 | `.3mf` | 3MF | None |
+| `.pdf` | 3D PDF (PRC embedded) | PRC model tree, view/tessellation summary |
+| `.prc` | Product Representation Compact | Model tree, view/tessellation summary |
+
+> **3D PDF note:** Only **PRC**-embedded 3D PDFs are supported (common from SolidWorks / Acrobat / Tetra4D). U3D-only PDFs are not supported. Geometry is tessellated mesh for viewing — exact B-Rep is not recovered. The backend uses [`nanoprc-py`](https://pypi.org/project/nanoprc-py/) (**AGPL-3.0**); using 3D PDF support in a closed-source product may require a commercial nanoPRC license or AGPL compliance.
 
 ---
 
@@ -235,10 +252,17 @@ Output is in `frontend/release/`.
 ### Step 3 — Development with Electron hot-reload
 
 ```bash
-# Terminal 1: FastAPI (required even in Electron dev mode)
-cd backend && uvicorn main:app --port 48321 --reload
+# From repo root — starts API (48321) + Vite + Electron
+npm run dev:electron
+```
 
-# Terminal 2: Electron + Vite
+Or manually (two terminals):
+
+```bash
+# Terminal 1
+npm run dev:backend
+
+# Terminal 2
 cd frontend && npm run dev:electron
 ```
 
@@ -265,7 +289,8 @@ Place your icon files in `frontend/build-resources/`:
 
 ## Notes on CadQuery / OpenCASCADE
 
+- Use **Python 3.11** via `uv` (`npm run setup`). Newer system Pythons will not find `cadquery-ocp==7.8.1` wheels.
 - **cadquery** bundles its own compiled version of OpenCASCADE — no separate OCC install is needed.
 - STEP annotation extraction uses the **XDE (Extended Data Exchange)** framework inside OCC. Assembly colours and names are available for AP214/AP242 files. For AP203 files only the header metadata is available.
-- The conversion pipeline is: STEP/IGES → OCC tessellation → STL → trimesh → GLB.
+- The conversion pipeline is: STEP/IGES → OCC tessellation → STL → trimesh → GLB; **3D PDF/PRC → nanoprc-py tessellation → trimesh → GLB**.
 - Large assemblies (hundreds of parts) may take 10–60 seconds to tessellate.

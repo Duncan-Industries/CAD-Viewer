@@ -11,13 +11,15 @@ from typing import Any
 import numpy as np
 import trimesh
 
+# Cap how many of each feature type we expose in the catalog UI.
+CATALOG_LIMIT = 40
+
 
 @dataclass
 class PartGeometry:
     part_id: str
     part_name: str
     mesh: trimesh.Trimesh
-    edges: np.ndarray
     vertices: np.ndarray
     face_normals: np.ndarray
     face_centers: np.ndarray
@@ -44,53 +46,85 @@ def _stable_part_id(name: str) -> str:
 
 def _build_part_geometry(part_name: str, mesh: trimesh.Trimesh) -> PartGeometry:
     part_id = _stable_part_id(part_name)
-    vertices = np.array(mesh.vertices)
-    edges = np.array(mesh.edges_unique)
-    face_normals = np.array(mesh.face_normals)
-    face_centers = np.array(mesh.triangles_center)
     return PartGeometry(
         part_id=part_id,
         part_name=part_name,
         mesh=mesh,
-        edges=edges,
-        vertices=vertices,
-        face_normals=face_normals,
-        face_centers=face_centers,
+        vertices=np.asarray(mesh.vertices),
+        face_normals=np.asarray(mesh.face_normals),
+        face_centers=np.asarray(mesh.triangles_center),
     )
 
 
 def _iter_part_geometries(glb_path: str) -> list[PartGeometry]:
+    """Walk scene graph nodes → mesh geometries (trimesh 4/5 compatible)."""
     scene = _load_scene(glb_path)
     parts: list[PartGeometry] = []
-    for node_name, geom_name in scene.graph.to_flattened().items():
+    seen: set[str] = set()
+
+    flat = scene.graph.to_flattened()
+    for node_name, meta in flat.items():
+        # trimesh 5: {"transform": ..., "geometry": name}
+        # older: (transform, geometry_name)
+        if isinstance(meta, dict):
+            geom_name = meta.get("geometry")
+        elif isinstance(meta, (tuple, list)) and len(meta) >= 2:
+            geom_name = meta[1]
+        else:
+            geom_name = meta
+
+        if not geom_name or geom_name in seen:
+            continue
         geom = scene.geometry.get(geom_name)
         if not isinstance(geom, trimesh.Trimesh):
             continue
-        label = _sanitize_name(node_name, geom_name)
+        seen.add(geom_name)
+        label = _sanitize_name(str(node_name), str(geom_name))
         parts.append(_build_part_geometry(label, geom))
+
+    # Fallback: some GLBs have geometry with no graph nodes
+    if not parts:
+        for geom_name, geom in scene.geometry.items():
+            if isinstance(geom, trimesh.Trimesh):
+                parts.append(_build_part_geometry(str(geom_name), geom))
+
     return parts
 
 
-def _edge_features(part: PartGeometry) -> list[dict[str, Any]]:
+def _edge_features(part: PartGeometry, limit: int = CATALOG_LIMIT) -> list[dict[str, Any]]:
+    edges = np.asarray(part.mesh.edges_unique)
+    if edges.size == 0:
+        return []
+
+    v0 = part.vertices[edges[:, 0]]
+    v1 = part.vertices[edges[:, 1]]
+    lengths = np.linalg.norm(v1 - v0, axis=1)
+
+    if len(lengths) > limit:
+        # Prefer longer edges — more useful for measurement
+        top = np.argpartition(lengths, -limit)[-limit:]
+        order = top[np.argsort(lengths[top])[::-1]]
+    else:
+        order = np.argsort(lengths)[::-1]
+
     features: list[dict[str, Any]] = []
-    for idx, edge in enumerate(part.edges):
-        v0 = part.vertices[edge[0]]
-        v1 = part.vertices[edge[1]]
-        length = float(np.linalg.norm(v1 - v0))
+    for rank, edge_idx in enumerate(order):
+        i = int(edge_idx)
+        length = float(lengths[i])
         features.append(
             {
-                "id": f"{part.part_id}:edge:{idx}",
-                "label": f"Edge {idx + 1} ({length:.3f})",
+                "id": f"{part.part_id}:edge:{i}",
+                "label": f"Edge {rank + 1} ({length:.3f})",
                 "kind": "edge",
                 "length": length,
-                "markers": [v0.tolist(), v1.tolist()],
-                "edge_index": idx,
+                "markers": [v0[i].tolist(), v1[i].tolist()],
+                "edge_index": i,
             }
         )
     return features
 
 
-def _hole_features(part: PartGeometry) -> list[dict[str, Any]]:
+def _hole_features(part: PartGeometry, limit: int = CATALOG_LIMIT) -> list[dict[str, Any]]:
     if part.vertices.size == 0:
         return []
     boundary_edges = part.mesh.edges_boundary
@@ -100,6 +134,8 @@ def _hole_features(part: PartGeometry) -> list[dict[str, Any]]:
     groups = trimesh.grouping.group_rows(np.sort(boundary_edges, axis=1), require_count=1)
     features: list[dict[str, Any]] = []
     for idx, group in enumerate(groups):
+        if len(features) >= limit:
+            break
         edge_rows = boundary_edges[group]
         loop_vertex_ids = np.unique(edge_rows.reshape(-1))
         loop_points = part.vertices[loop_vertex_ids]
@@ -127,13 +163,15 @@ def _hole_features(part: PartGeometry) -> list[dict[str, Any]]:
     return features
 
 
-def _planar_features(part: PartGeometry) -> list[dict[str, Any]]:
+def _planar_features(part: PartGeometry, limit: int = CATALOG_LIMIT) -> list[dict[str, Any]]:
     if len(part.face_normals) == 0:
         return []
     rounded = np.round(part.face_normals, 2)
     unique_normals, inverse = np.unique(rounded, axis=0, return_inverse=True)
     features: list[dict[str, Any]] = []
     for idx, normal in enumerate(unique_normals):
+        if len(features) >= limit:
+            break
         mask = inverse == idx
         if int(mask.sum()) < 8:
             continue
@@ -178,13 +216,13 @@ def build_feature_catalog(glb_path: str, file_id: str) -> dict[str, Any]:
     parts = _iter_part_geometries(glb_path)
     summaries: list[dict[str, Any]] = []
     for part in parts:
-        edges = _edge_features(part)
-        holes = _hole_features(part)
-        planes = _planar_features(part)
+        edges = _edge_features(part, limit=CATALOG_LIMIT)
+        holes = _hole_features(part, limit=CATALOG_LIMIT)
+        planes = _planar_features(part, limit=CATALOG_LIMIT)
         features = [
-            *({"id": f["id"], "label": f["label"], "kind": f["kind"]} for f in edges[:40]),
-            *({"id": f["id"], "label": f["label"], "kind": f["kind"]} for f in holes[:40]),
-            *({"id": f["id"], "label": f["label"], "kind": f["kind"]} for f in planes[:40]),
+            *({"id": f["id"], "label": f["label"], "kind": f["kind"]} for f in edges),
+            *({"id": f["id"], "label": f["label"], "kind": f["kind"]} for f in holes),
+            *({"id": f["id"], "label": f["label"], "kind": f["kind"]} for f in planes),
         ]
         summaries.append(
             {

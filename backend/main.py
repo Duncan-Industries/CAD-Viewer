@@ -10,7 +10,7 @@ import os
 import uuid
 import tempfile
 import time
-import json
+import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
@@ -26,6 +26,7 @@ from models.schemas import (
     FeatureMeasureRequest,
     FeatureMeasureResponse,
     FileFeatureCatalog,
+    PmiLine,
 )
 
 
@@ -51,31 +52,6 @@ os.makedirs(GLB_DIR, exist_ok=True)
 MAX_FILE_SIZE = 500 * 1024 * 1024
 
 FILE_FEATURE_CACHE: dict[str, dict] = {}
-DEBUG_LOG_PATH = Path(
-    os.environ.get(
-        "CADVIEWER_DEBUG_LOG_PATH",
-        r"C:\Users\jake\Documents\GitHub\CAD-Viewer\debug-b66542.log",
-    )
-)
-
-
-def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    # #region agent log
-    try:
-        entry = {
-            "sessionId": "b66542",
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with DEBUG_LOG_PATH.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
-    except Exception:
-        pass
-    # #endregion
 
 
 def _now_ms() -> int:
@@ -118,14 +94,6 @@ async def upload_cad_file(file: UploadFile = File(...)):
     request_started_ms = _now_ms()
     filename = file.filename or "upload.step"
     ext = Path(filename).suffix.lower()
-    run_id = f"upload-{uuid.uuid4()}"
-    _debug_log(
-        run_id,
-        "H1",
-        "main.py:upload_cad_file:entry",
-        "Upload request received",
-        {"filename": filename, "ext": ext, "content_type": file.content_type},
-    )
 
     if ext not in processor.SUPPORTED_EXTENSIONS:
         return _api_error(
@@ -160,92 +128,35 @@ async def upload_cad_file(file: UploadFile = File(...)):
                     stage="upload",
                 )
             tmp.write(chunk)
-    _debug_log(
-        run_id,
-        "H5",
-        "main.py:upload_cad_file:post_write",
-        "Upload temp file write complete",
-        {"tmp_path": tmp_path, "total_bytes": total, "exists": os.path.exists(tmp_path)},
-    )
     upload_ms = _now_ms() - upload_started_ms
 
     glb_path = os.path.join(GLB_DIR, f"{file_id}.glb")
     convert_ms = 0
     extract_ms = 0
     try:
-        _debug_log(
-            run_id,
-            "H2",
-            "main.py:upload_cad_file:pre_convert",
-            "Starting conversion",
-            {"tmp_path": tmp_path, "filename": filename, "glb_dir": GLB_DIR, "file_id": file_id},
-        )
         convert_started_ms = _now_ms()
-        # Convert to GLB
-        glb_path, conversion_meta = processor.convert(tmp_path, filename, GLB_DIR, file_id)
-        convert_ms = _now_ms() - convert_started_ms
-        _debug_log(
-            run_id,
-            "H2",
-            "main.py:upload_cad_file:post_convert",
-            "Conversion completed",
-            {
-                "glb_path": glb_path,
-                "cache_hit": bool(conversion_meta.get("cache_hit", False)),
-                "quality_profile": conversion_meta.get("quality_profile"),
-                "warnings_count": len(conversion_meta.get("warnings", [])),
-            },
+        # Run blocking CAD work off the event loop so health/proxy noise stays responsive
+        glb_path, conversion_meta = await asyncio.to_thread(
+            processor.convert, tmp_path, filename, GLB_DIR, file_id
         )
+        convert_ms = _now_ms() - convert_started_ms
         warnings.extend(conversion_meta.get("warnings", []))
         cache_hit = bool(conversion_meta.get("cache_hit", False))
-        quality_profile = conversion_meta.get("quality_profile", "balanced")
+        quality_profile = conversion_meta.get("quality_profile", "fast")
 
         extract_started_ms = _now_ms()
-        # Extract annotations & assembly tree
-        info = extractor.extract(tmp_path, filename)
+        info = await asyncio.to_thread(extractor.extract, tmp_path, filename)
         extract_ms = _now_ms() - extract_started_ms
-        _debug_log(
-            run_id,
-            "H3",
-            "main.py:upload_cad_file:post_extract",
-            "Extraction completed",
-            {
-                "metadata_format": getattr(info.get("metadata"), "format", None),
-                "assembly_count": len(info.get("assembly", [])),
-                "annotation_count": len(info.get("annotations", [])),
-            },
-        )
 
     except ValueError as e:
-        _debug_log(
-            run_id,
-            "H1",
-            "main.py:upload_cad_file:except_value_error",
-            "ValueError during upload pipeline",
-            {"error_type": type(e).__name__, "error": str(e), "glb_path": glb_path},
-        )
         if os.path.exists(glb_path):
             os.unlink(glb_path)
         return _api_error(415, "invalid_input", str(e), stage="convert")
     except RuntimeError as e:
-        _debug_log(
-            run_id,
-            "H2",
-            "main.py:upload_cad_file:except_runtime_error",
-            "RuntimeError during conversion",
-            {"error_type": type(e).__name__, "error": str(e), "glb_path": glb_path},
-        )
         if os.path.exists(glb_path):
             os.unlink(glb_path)
         return _api_error(500, "conversion_error", str(e), stage="convert")
     except Exception as e:
-        _debug_log(
-            run_id,
-            "H3",
-            "main.py:upload_cad_file:except_generic",
-            "Unhandled exception during upload pipeline",
-            {"error_type": type(e).__name__, "error": str(e), "glb_path": glb_path},
-        )
         if os.path.exists(glb_path):
             os.unlink(glb_path)
         return _api_error(500, "processing_failed", "Processing failed.", stage="extract", detail=str(e))
@@ -266,12 +177,21 @@ async def upload_cad_file(file: UploadFile = File(...)):
     ])
 
     FILE_FEATURE_CACHE.pop(file_id, None)
+    raw_pmi = conversion_meta.get("pmi_lines") or []
+    pmi_lines: list[PmiLine] = []
+    for item in raw_pmi:
+        try:
+            pmi_lines.append(PmiLine.model_validate(item))
+        except Exception:
+            continue
+
     return ProcessedFile(
         file_id=file_id,
         gltf_url=f"/api/files/{file_id}.glb",
         metadata=info["metadata"],
         assembly=info["assembly"],
         annotations=info["annotations"],
+        pmi_lines=pmi_lines,
         timings=timings,
         warnings=warnings,
     )
@@ -308,7 +228,9 @@ async def get_file_features(file_id: str):
     if not os.path.exists(glb_path):
         raise HTTPException(404, "File not found.")
     try:
-        catalog = feature_measure.build_feature_catalog(glb_path, file_id)
+        catalog = await asyncio.to_thread(
+            feature_measure.build_feature_catalog, glb_path, file_id
+        )
         FILE_FEATURE_CACHE[file_id] = catalog
         return catalog
     except ValueError as exc:
@@ -327,7 +249,9 @@ async def measure_file_feature(file_id: str, payload: FeatureMeasureRequest):
     if not os.path.exists(glb_path):
         raise HTTPException(404, "File not found.")
     try:
-        result = feature_measure.measure_feature(glb_path, file_id, payload.model_dump())
+        result = await asyncio.to_thread(
+            feature_measure.measure_feature, glb_path, file_id, payload.model_dump()
+        )
         return result
     except ValueError as exc:
         raise HTTPException(400, str(exc))

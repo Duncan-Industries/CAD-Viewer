@@ -1,0 +1,21 @@
+{
+  "name": "cadviewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CAD Viewer — unified local development entrypoint",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev": "concurrently -k -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "node scripts/dev-backend.mjs",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:electron": "concurrently -k -n backend,electron -c blue,magenta \"npm run dev:backend\" \"npm run dev:electron --prefix frontend\"",
+    "docker": "docker compose up --build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "wait-on": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

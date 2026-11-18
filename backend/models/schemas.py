@@ -45,12 +45,24 @@ class FileMetadata(BaseModel):
     ap_standard: Optional[str] = None  # e.g. AP203, AP214, AP242
 
 
+class MeasurePoint(BaseModel):
+    x: float
+    y: float
+    z: float
+
+
+class PmiLine(BaseModel):
+    start: MeasurePoint
+    end: MeasurePoint
+
+
 class ProcessedFile(BaseModel):
     file_id: str
     gltf_url: str
     metadata: FileMetadata
     assembly: list[AssemblyNode] = []
     annotations: list[Annotation] = []
+    pmi_lines: list[PmiLine] = []
     supported_format: bool = True
     timings: ProcessingTimings = ProcessingTimings()
     warnings: list[str] = []
@@ -60,12 +72,6 @@ class FeatureValue(BaseModel):
     value: float
     unit: str
     display: str
-
-
-class MeasurePoint(BaseModel):
-    x: float
-    y: float
-    z: float
 
 
 class FeatureMeasureRequest(BaseModel):

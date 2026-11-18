@@ -22,6 +22,11 @@ export interface Annotation {
   metadata: Record<string, unknown>;
 }
 
+export interface PmiLine {
+  start: { x: number; y: number; z: number };
+  end: { x: number; y: number; z: number };
+}
+
 export interface FileMetadata {
   filename: string;
   format: string;
@@ -40,6 +45,7 @@ export interface ProcessedFile {
   metadata: FileMetadata;
   assembly: AssemblyNode[];
   annotations: Annotation[];
+  pmi_lines?: PmiLine[];
   supported_format: boolean;
   timings: {
     upload_ms: number;
@@ -102,6 +108,8 @@ export interface CADViewerBridge {
   installPython: () => Promise<boolean>;
   startBackend: () => Promise<{ ok: boolean; reason?: string }>;
   getBackendStatus: () => Promise<string>;
+  /** Native OS dialog filtered to CAD / 3D extensions only. */
+  openCadFile?: () => Promise<{ name: string; data: ArrayBuffer } | null>;
   onSetupProgress: (
     cb: (event: { stage: string; percent: number; message: string }) => void,
   ) => () => void;

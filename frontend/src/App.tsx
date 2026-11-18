@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "reac
 
 import { Toolbar } from "./components/Toolbar";
 import { FileUpload } from "./components/FileUpload";
-import { Viewer3D } from "./components/Viewer3D";
+import { Viewer3D, collectMatchingPartIds, type ScenePart } from "./components/Viewer3D";
 import { SettingsModal } from "./components/SettingsModal";
 import { AssemblyTree } from "./components/AssemblyTree";
 import { AnnotationsPanel, MetadataPanel } from "./components/AnnotationsPanel";
 import { useCADFile } from "./hooks/useCADFile";
 import { FeatureMeasurePanel } from "./components/FeatureMeasurePanel";
-import { CAD_FILE_ACCEPT, clearFileInput, openFileInputPicker, pickFirstFile } from "./services/filePicker";
+import { CAD_FILE_ACCEPT, clearFileInput, isSupportedCadFileName, openCadFilePicker, pickFirstFile } from "./services/filePicker";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type AppSettings } from "./services/settings";
 import { getFeatureCatalog, measureFeature } from "./services/api";
 import type { FeatureMeasureResponse, FileFeatureCatalog, MeasurementType, PanelTab, ViewMode } from "./types/cad";
@@ -167,6 +167,12 @@ export default function App() {
   const [featureB, setFeatureB] = useState<string | null>(null);
   const [measureResult, setMeasureResult] = useState<FeatureMeasureResponse | null>(null);
   const [renderLoadMs, setRenderLoadMs] = useState<number | null>(null);
+  const [pendingPartName, setPendingPartName] = useState<string | null>(null);
+  const [sceneParts, setSceneParts] = useState<ScenePart[]>([]);
+  const [hiddenPartIds, setHiddenPartIds] = useState<Set<string>>(() => new Set());
+  const [hiddenAssemblyNames, setHiddenAssemblyNames] = useState<Set<string>>(() => new Set());
+  const [showNotes, setShowNotes] = useState(false);
+  const [hiddenAnnotationIds, setHiddenAnnotationIds] = useState<Set<string>>(() => new Set());
 
   // No Electron IPC (browser/web dev) → skip backend wait
   const hasIpc = !!window.cadviewer?.onSetupProgress;
@@ -207,25 +213,105 @@ export default function App() {
     setFeatureA(null);
     setFeatureB(null);
     setRenderLoadMs(null);
+    setPendingPartName(null);
+    setSceneParts([]);
+    setHiddenPartIds(new Set());
+    setHiddenAssemblyNames(new Set());
+    setShowNotes(false);
+    setHiddenAnnotationIds(new Set());
+  }, [cadFile]);
+
+  const togglePartId = useCallback((id: string) => {
+    setHiddenPartIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleAssemblyName = useCallback((name: string) => {
+    setHiddenAssemblyNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+    setHiddenPartIds((prev) => {
+      const next = new Set(prev);
+      const matching = collectMatchingPartIds(sceneParts, name);
+      const shouldHide = !hiddenAssemblyNames.has(name);
+      for (const id of matching) {
+        if (shouldHide) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, [sceneParts, hiddenAssemblyNames]);
+
+  const showAllParts = useCallback(() => {
+    setHiddenPartIds(new Set());
+    setHiddenAssemblyNames(new Set());
+  }, []);
+
+  const hideAllBodies = useCallback(() => {
+    setHiddenPartIds(new Set(sceneParts.filter((p) => p.kind === "body").map((p) => p.id)));
+    setHiddenAssemblyNames(new Set());
+  }, [sceneParts]);
+
+  const toggleAnnotationId = useCallback((id: string) => {
+    setHiddenAnnotationIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const showAllAnnotations = useCallback(() => {
+    setHiddenAnnotationIds(new Set());
+    setShowNotes(true);
+  }, []);
+
+  const hideAllAnnotations = useCallback(() => {
     if (!cadFile) return;
+    setHiddenAnnotationIds(new Set(cadFile.annotations.map((ann) => ann.id)));
+  }, [cadFile]);
+
+  // Lazy-load measure catalog only when the Measure tab is opened (avoids blocking open)
+  useEffect(() => {
+    if (!cadFile || tab !== "measure" || featureCatalog) return;
+    let cancelled = false;
     getFeatureCatalog(cadFile.file_id)
-      .then((catalog) => setFeatureCatalog(catalog))
+      .then((catalog) => {
+        if (!cancelled) setFeatureCatalog(catalog);
+      })
       .catch((err) => {
+        if (cancelled) return;
         const message = err instanceof Error ? err.message : "Failed to load feature catalog.";
         setMeasureError(message);
       });
-  }, [cadFile]);
+    return () => {
+      cancelled = true;
+    };
+  }, [cadFile, tab, featureCatalog]);
+
+  useEffect(() => {
+    if (!featureCatalog || !pendingPartName) return;
+    const match = featureCatalog.parts.find(
+      (part) =>
+        part.name === pendingPartName ||
+        part.name.endsWith(pendingPartName) ||
+        pendingPartName.endsWith(part.name),
+    );
+    if (match) setSelectedPartId(match.id);
+    setPendingPartName(null);
+  }, [featureCatalog, pendingPartName]);
 
   const handlePartClick = useCallback((name: string) => {
-    if (!featureCatalog) return;
-    const match = featureCatalog.parts.find(
-      (part) => part.name === name || part.name.endsWith(name) || name.endsWith(part.name),
-    );
-    if (match) {
-      setSelectedPartId(match.id);
-      setTab("measure");
-    }
-  }, [featureCatalog]);
+    setTab("measure");
+    setPendingPartName(name);
+  }, []);
 
   const runMeasure = useCallback(async () => {
     if (!cadFile || !selectedPartId || !featureA) return;
@@ -254,19 +340,20 @@ export default function App() {
 
   const handlePickerChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = pickFirstFile(e.target.files);
-    if (!file || isLoading) return;
-    load(file);
     clearFileInput(e.target);
+    if (!file || isLoading || !isSupportedCadFileName(file.name)) return;
+    load(file);
   };
 
-  const openFilePicker = () => {
+  const openFilePicker = async () => {
     if (isLoading) return;
     if (settings.confirmBeforeOpen && hasFile) {
       const proceed = window.confirm("Open a new file and clear the current model?");
       if (!proceed) return;
     }
     reset();
-    openFileInputPicker(inputRef.current);
+    const file = await openCadFilePicker(inputRef.current);
+    if (file) load(file);
   };
 
   useEffect(() => {
@@ -336,6 +423,8 @@ export default function App() {
         onOpenSettings={() => setSettingsOpen(true)}
         hasFile={hasFile}
         filename={cadFile?.metadata.filename ?? null}
+        showNotes={showNotes}
+        onToggleNotes={() => setShowNotes((v) => !v)}
       />
 
       {/* ── Main area ── */}
@@ -383,6 +472,12 @@ export default function App() {
             viewMode={viewMode}
             onPartClick={handlePartClick}
             measurementMarkers={measureResult?.markers}
+            annotations={cadFile?.annotations}
+            pmiLines={cadFile?.pmi_lines}
+            hiddenPartIds={hiddenPartIds}
+            hiddenAnnotationIds={hiddenAnnotationIds}
+            showNotes={showNotes}
+            onSceneParts={setSceneParts}
             onLoadStats={(stats) => setRenderLoadMs(stats.renderLoadMs)}
           />
         </main>
@@ -406,10 +501,27 @@ export default function App() {
               </UiTabsList>
 
               <UiTabsPanel value="assembly" className="flex-1 min-h-0">
-                <AssemblyTree nodes={cadFile.assembly} />
+                <AssemblyTree
+                  nodes={cadFile.assembly}
+                  sceneParts={sceneParts}
+                  hiddenPartIds={hiddenPartIds}
+                  hiddenAssemblyNames={hiddenAssemblyNames}
+                  onTogglePartId={togglePartId}
+                  onToggleAssemblyName={toggleAssemblyName}
+                  onShowAll={showAllParts}
+                  onHideAllBodies={hideAllBodies}
+                />
               </UiTabsPanel>
               <UiTabsPanel value="annotations" className="flex-1 min-h-0">
-                <AnnotationsPanel annotations={cadFile.annotations} />
+                <AnnotationsPanel
+                  annotations={cadFile.annotations}
+                  hiddenAnnotationIds={hiddenAnnotationIds}
+                  showAnnotations={showNotes}
+                  onToggleAnnotation={toggleAnnotationId}
+                  onShowAllAnnotations={showAllAnnotations}
+                  onHideAllAnnotations={hideAllAnnotations}
+                  onToggleShowAnnotations={() => setShowNotes((v) => !v)}
+                />
               </UiTabsPanel>
               <UiTabsPanel value="metadata" className="flex-1 min-h-0">
                 <MetadataPanel metadata={cadFile.metadata} />

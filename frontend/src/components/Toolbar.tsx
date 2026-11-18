@@ -10,6 +10,8 @@ interface ToolbarProps {
   onOpenSettings: () => void;
   hasFile: boolean;
   filename: string | null;
+  showNotes?: boolean;
+  onToggleNotes?: () => void;
 }
 
 const VIEW_MODES: { mode: ViewMode; label: string }[] = [
@@ -27,6 +29,8 @@ export function Toolbar({
   onOpenSettings,
   hasFile,
   filename,
+  showNotes = false,
+  onToggleNotes,
 }: ToolbarProps) {
   return (
     <header className="flex items-center justify-between gap-4 px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0">
@@ -89,6 +93,18 @@ export function Toolbar({
             </Button>
           ))}
         </div>
+
+        {hasFile && (
+          <Button
+            type="button"
+            onClick={onToggleNotes}
+            variant={showNotes ? "primary" : "secondary"}
+            size="sm"
+            title="Show or hide text notes and dimension labels"
+          >
+            {showNotes ? "Notes on" : "Notes off"}
+          </Button>
+        )}
 
         {/* Open file */}
         <Button
